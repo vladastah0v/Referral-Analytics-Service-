@@ -249,3 +249,38 @@ class ReferralAttributionRepository:
             .returning(ReferralAttribution)
         )
         return await self.session.scalar(statement)
+
+
+class ReferralStatisticsRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def totals(
+        self, owner_id: UUID, date_from: datetime | None, date_to: datetime | None
+    ) -> tuple[int, int, int]:
+        clicks = (
+            select(
+                func.count(ReferralClick.id).label("total_clicks"),
+                func.count(func.distinct(ReferralClick.visitor_id)).label("unique_visitors"),
+            )
+            .select_from(ReferralClick)
+            .join(ReferralCode, ReferralCode.id == ReferralClick.referral_code_id)
+            .where(ReferralCode.owner_id == owner_id)
+        )
+        registrations = select(func.count(ReferralAttribution.id)).where(
+            ReferralAttribution.referrer_id == owner_id
+        )
+        if date_from is not None:
+            clicks = clicks.where(ReferralClick.clicked_at >= date_from)
+            registrations = registrations.where(ReferralAttribution.attributed_at >= date_from)
+        if date_to is not None:
+            clicks = clicks.where(ReferralClick.clicked_at < date_to)
+            registrations = registrations.where(ReferralAttribution.attributed_at < date_to)
+        click_totals = clicks.subquery()
+        statement = select(
+            click_totals.c.total_clicks,
+            click_totals.c.unique_visitors,
+            registrations.scalar_subquery().label("referred_registrations"),
+        ).select_from(click_totals)
+        row = (await self.session.execute(statement)).one()
+        return row.total_clicks, row.unique_visitors, row.referred_registrations

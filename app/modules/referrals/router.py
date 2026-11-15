@@ -2,6 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from pydantic import AwareDatetime
 
 from app.core.dependencies import CurrentUser, SessionDependency
 from app.modules.referrals.schemas import (
@@ -11,12 +12,15 @@ from app.modules.referrals.schemas import (
     ReferralCodePage,
     ReferralCodeRead,
     ReferralCodeUpdate,
+    ReferralStatistics,
 )
 from app.modules.referrals.service import (
+    InvalidStatisticsRangeError,
     ReferralClickConflictError,
     ReferralClickService,
     ReferralCodeService,
     ReferralCodeUnavailableError,
+    ReferralStatisticsService,
 )
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
@@ -90,3 +94,25 @@ async def track_click(
         response.status_code = status.HTTP_200_OK
     response.headers["Cache-Control"] = "no-store"
     return ReferralClickRead.model_validate(click)
+
+
+@router.get("/statistics", response_model=ReferralStatistics)
+async def referral_statistics(
+    user: CurrentUser,
+    session: SessionDependency,
+    response: Response,
+    date_from: Annotated[
+        AwareDatetime | None, Query(description="Inclusive start with timezone")
+    ] = None,
+    date_to: Annotated[
+        AwareDatetime | None, Query(description="Exclusive end with timezone")
+    ] = None,
+) -> ReferralStatistics:
+    try:
+        result = await ReferralStatisticsService(session).get_for_owner(user.id, date_from, date_to)
+    except InvalidStatisticsRangeError as exc:
+        raise HTTPException(
+            status_code=422, detail="date_from must be earlier than date_to"
+        ) from exc
+    response.headers["Cache-Control"] = "private, no-store"
+    return result

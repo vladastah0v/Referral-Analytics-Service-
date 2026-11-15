@@ -1,5 +1,6 @@
 import secrets
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -16,6 +17,7 @@ from app.modules.referrals.repository import (
     ReferralClickRepository,
     ReferralCodeRepository,
     ReferralProgramRepository,
+    ReferralStatisticsRepository,
 )
 from app.modules.referrals.schemas import (
     ReferralClickCreate,
@@ -23,6 +25,7 @@ from app.modules.referrals.schemas import (
     ReferralCodeUpdate,
     ReferralProgramCreate,
     ReferralProgramUpdate,
+    ReferralStatistics,
 )
 from app.modules.users.models import User
 
@@ -196,3 +199,36 @@ class ReferralAttributionService:
                         await savepoint.rollback()
                         return await self.attributions.get_for_user(user_id)
                     return attribution
+
+
+class InvalidStatisticsRangeError(Exception):
+    pass
+
+
+class ReferralStatisticsService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.statistics = ReferralStatisticsRepository(session)
+
+    async def get_for_owner(
+        self, owner_id: UUID, date_from: datetime | None, date_to: datetime | None
+    ) -> ReferralStatistics:
+        date_from = date_from.astimezone(UTC) if date_from is not None else None
+        date_to = date_to.astimezone(UTC) if date_to is not None else None
+        if date_from is not None and date_to is not None and date_from >= date_to:
+            raise InvalidStatisticsRangeError
+        clicks, visitors, registrations = await self.statistics.totals(owner_id, date_from, date_to)
+        conversion = (
+            (Decimal(registrations) * Decimal(100) / Decimal(visitors)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            if visitors
+            else None
+        )
+        return ReferralStatistics(
+            date_from=date_from,
+            date_to=date_to,
+            total_clicks=clicks,
+            unique_visitors=visitors,
+            referred_registrations=registrations,
+            conversion_rate=conversion,
+        )

@@ -182,3 +182,12 @@ class ReferralClickRead(BaseModel):
     clicked_at: datetime
     source: str | None
     campaign: str | None
+
+
+class ReferralStatistics(BaseModel):
+    date_from: datetime | None
+    date_to: datetime | None
+    total_clicks: int
+    unique_visitors: int
+    referred_registrations: int
+    conversion_rate: Decimal | None
