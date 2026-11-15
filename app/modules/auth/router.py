@@ -4,15 +4,15 @@ from app.core.dependencies import SessionDependency
 from app.modules.auth.schemas import LoginRequest, RefreshRequest, TokenPair
 from app.modules.auth.service import AuthService
 from app.modules.users.models import UserRole
-from app.modules.users.schemas import UserCreate, UserRead
+from app.modules.users.schemas import UserRead, UserRegistration
 from app.modules.users.service import UserService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def register(data: UserCreate, session: SessionDependency) -> UserRead:
-    user = await UserService(session).create(data, UserRole.CUSTOMER)
+async def register(data: UserRegistration, session: SessionDependency) -> UserRead:
+    user = await UserService(session).create(data, UserRole.CUSTOMER, visitor_id=data.visitor_id)
     return UserRead.model_validate(user)
 
 

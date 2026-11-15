@@ -2,7 +2,15 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, SecretStr, StringConstraints, field_validator
+from pydantic import (
+    UUID4,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    SecretStr,
+    StringConstraints,
+    field_validator,
+)
 
 from app.modules.users.models import UserRole
 
@@ -27,6 +35,10 @@ class UserCreate(BaseModel):
         if not 12 <= len(value.get_secret_value()) <= 128:
             raise ValueError("Password must contain between 12 and 128 characters")
         return value
+
+
+class UserRegistration(UserCreate):
+    visitor_id: UUID4 | None = None
 
 
 class UserRead(BaseModel):

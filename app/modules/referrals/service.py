@@ -1,12 +1,18 @@
 import secrets
-from datetime import UTC, datetime
+from datetime import timedelta
 from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.referrals.models import ReferralClick, ReferralCode, ReferralProgram
+from app.modules.referrals.models import (
+    ReferralAttribution,
+    ReferralClick,
+    ReferralCode,
+    ReferralProgram,
+)
 from app.modules.referrals.repository import (
+    ReferralAttributionRepository,
     ReferralClickRepository,
     ReferralCodeRepository,
     ReferralProgramRepository,
@@ -18,6 +24,7 @@ from app.modules.referrals.schemas import (
     ReferralProgramCreate,
     ReferralProgramUpdate,
 )
+from app.modules.users.models import User
 
 
 class ReferralCodeService:
@@ -116,6 +123,7 @@ class ReferralClickService:
 
     async def track(self, data: ReferralClickCreate) -> tuple[ReferralClick, bool]:
         await self.clicks.lock_request(data.request_id)
+        await self.clicks.lock_visitor(data.visitor_id)
         existing = await self.clicks.get_by_request_id(data.request_id)
         if existing is not None:
             return self._verify_replay(existing, data), False
@@ -124,7 +132,7 @@ class ReferralClickService:
         if (
             code is None
             or not code.is_active
-            or (code.expires_at is not None and code.expires_at <= datetime.now(UTC))
+            or (code.expires_at is not None and code.expires_at <= await self.clicks.current_time())
         ):
             raise ReferralCodeUnavailableError
 
@@ -136,3 +144,55 @@ class ReferralClickService:
             return self._verify_replay(existing, data), False
         await self.session.commit()
         return click, True
+
+
+class ReferralAttributionService:
+    """Attribute an existing registration within the caller's transaction."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.attributions = ReferralAttributionRepository(session)
+
+    async def attribute_registration(
+        self, user_id: UUID, visitor_id: UUID
+    ) -> ReferralAttribution | None:
+        await self.attributions.lock_user(user_id)
+        existing = await self.attributions.get_for_user(user_id)
+        if existing is not None:
+            return existing
+        await self.attributions.lock_visitor(visitor_id)
+        user = await self.session.get(User, user_id)
+        if user is None:
+            raise ValueError("User not found")
+        registered_at = user.created_at
+        cursor = None
+        while True:
+            candidates = await self.attributions.candidates(
+                visitor_id, user_id, registered_at - timedelta(days=30), registered_at, cursor
+            )
+            if not candidates:
+                return None
+            for click_id, code_id, clicked_at in candidates:
+                cursor = (clicked_at, click_id)
+                # Rolling back a rejected candidate releases its row lock before trying another.
+                async with self.session.begin_nested() as savepoint:
+                    code = await self.attributions.lock_code(code_id)
+                    if code is None or not code.is_active or code.owner_id == user_id:
+                        await savepoint.rollback()
+                        continue
+                    if (
+                        code.expires_at is not None
+                        and code.expires_at <= await self.attributions.current_time()
+                    ):
+                        await savepoint.rollback()
+                        continue
+                    if code.max_uses is not None:
+                        uses = await self.attributions.count_code_uses(code.id)
+                        if uses >= code.max_uses:
+                            await savepoint.rollback()
+                            continue
+                    attribution = await self.attributions.insert_if_new(code, click_id, user_id)
+                    if attribution is None:
+                        await savepoint.rollback()
+                        return await self.attributions.get_for_user(user_id)
+                    return attribution
