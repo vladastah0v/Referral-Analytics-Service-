@@ -15,6 +15,7 @@ from app.core.exceptions import (
 )
 from app.core.redis import redis_client
 from app.modules.auth.router import router as auth_router
+from app.modules.referrals.router import router as referrals_router
 from app.modules.users.router import router as users_router
 
 
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Referral Analytics Service", version="0.1.0", lifespan=lifespan)
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(referrals_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 
 

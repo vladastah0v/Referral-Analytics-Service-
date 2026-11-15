@@ -34,6 +34,7 @@ from app.main import (
     validation_error_handler,
 )
 from app.modules.auth.router import router as auth_router
+from app.modules.referrals.router import router as referrals_router
 from app.modules.users.models import User, UserRole
 from app.modules.users.router import router as users_router
 
@@ -85,6 +86,7 @@ def session_maker(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
     api = FastAPI()
     api.include_router(auth_router, prefix="/api/v1")
+    api.include_router(referrals_router, prefix="/api/v1")
     api.include_router(users_router, prefix="/api/v1")
     api.add_exception_handler(RequestValidationError, validation_error_handler)
     api.add_exception_handler(AuthenticationError, authentication_error_handler)
