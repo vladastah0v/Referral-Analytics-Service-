@@ -1,16 +1,23 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.core.dependencies import CurrentUser, SessionDependency
 from app.modules.referrals.schemas import (
+    ReferralClickCreate,
+    ReferralClickRead,
     ReferralCodeCreate,
     ReferralCodePage,
     ReferralCodeRead,
     ReferralCodeUpdate,
 )
-from app.modules.referrals.service import ReferralCodeService
+from app.modules.referrals.service import (
+    ReferralClickConflictError,
+    ReferralClickService,
+    ReferralCodeService,
+    ReferralCodeUnavailableError,
+)
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
 
@@ -56,3 +63,30 @@ async def update_code(
     if record is None:
         raise HTTPException(status_code=404, detail="Referral code not found")
     return ReferralCodeRead.model_validate(record)
+
+
+@router.post(
+    "/track",
+    response_model=ReferralClickRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        200: {"model": ReferralClickRead, "description": "Idempotent replay"},
+        404: {"description": "Referral code unavailable"},
+        409: {"description": "Request ID already used for a different click"},
+    },
+)
+async def track_click(
+    data: ReferralClickCreate, session: SessionDependency, response: Response
+) -> ReferralClickRead:
+    try:
+        click, created = await ReferralClickService(session).track(data)
+    except ReferralCodeUnavailableError as exc:
+        raise HTTPException(status_code=404, detail="Referral code unavailable") from exc
+    except ReferralClickConflictError as exc:
+        raise HTTPException(
+            status_code=409, detail="Request ID already used for a different click"
+        ) from exc
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    response.headers["Cache-Control"] = "no-store"
+    return ReferralClickRead.model_validate(click)

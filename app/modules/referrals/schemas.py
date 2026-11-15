@@ -4,6 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from pydantic import (
+    UUID4,
     AwareDatetime,
     BaseModel,
     ConfigDict,
@@ -154,3 +155,30 @@ class ReferralProgramPage(BaseModel):
     items: list[ReferralProgramRead]
     limit: int
     offset: int
+
+
+class ReferralClickCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    visitor_id: UUID4
+    request_id: UUID4
+    source: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+        | None
+    ) = None
+    campaign: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+        | None
+    ) = None
+
+
+class ReferralClickRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    referral_code_id: UUID
+    request_id: UUID
+    clicked_at: datetime
+    source: str | None
+    campaign: str | None

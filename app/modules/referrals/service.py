@@ -1,12 +1,18 @@
 import secrets
+from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.referrals.models import ReferralCode, ReferralProgram
-from app.modules.referrals.repository import ReferralCodeRepository, ReferralProgramRepository
+from app.modules.referrals.models import ReferralClick, ReferralCode, ReferralProgram
+from app.modules.referrals.repository import (
+    ReferralClickRepository,
+    ReferralCodeRepository,
+    ReferralProgramRepository,
+)
 from app.modules.referrals.schemas import (
+    ReferralClickCreate,
     ReferralCodeCreate,
     ReferralCodeUpdate,
     ReferralProgramCreate,
@@ -79,3 +85,54 @@ class ReferralProgramService:
             setattr(program, field, getattr(validated, field))
         await self.session.commit()
         return program
+
+
+class ReferralCodeUnavailableError(Exception):
+    pass
+
+
+class ReferralClickConflictError(Exception):
+    pass
+
+
+class ReferralClickService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.clicks = ReferralClickRepository(session)
+
+    @staticmethod
+    def _verify_replay(
+        existing: tuple[ReferralClick, str], data: ReferralClickCreate
+    ) -> ReferralClick:
+        click, code = existing
+        if (
+            code != data.code
+            or click.visitor_id != data.visitor_id
+            or click.source != data.source
+            or click.campaign != data.campaign
+        ):
+            raise ReferralClickConflictError
+        return click
+
+    async def track(self, data: ReferralClickCreate) -> tuple[ReferralClick, bool]:
+        await self.clicks.lock_request(data.request_id)
+        existing = await self.clicks.get_by_request_id(data.request_id)
+        if existing is not None:
+            return self._verify_replay(existing, data), False
+
+        code = await self.clicks.lock_code_for_read(data.code)
+        if (
+            code is None
+            or not code.is_active
+            or (code.expires_at is not None and code.expires_at <= datetime.now(UTC))
+        ):
+            raise ReferralCodeUnavailableError
+
+        click = await self.clicks.insert_if_new(code.id, data)
+        if click is None:
+            existing = await self.clicks.get_by_request_id(data.request_id)
+            if existing is None:
+                raise RuntimeError("Conflicting referral click could not be loaded")
+            return self._verify_replay(existing, data), False
+        await self.session.commit()
+        return click, True
