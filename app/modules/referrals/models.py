@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -25,6 +26,10 @@ from app.core.database import Base
 class RewardType(StrEnum):
     FIXED = "fixed"
     PERCENTAGE = "percentage"
+
+
+class AttributionModel(StrEnum):
+    LAST_REFERRAL_CLICK = "last_referral_click"
 
 
 class ReferralProgram(Base):
@@ -69,6 +74,7 @@ class ReferralCode(Base):
     __tablename__ = "referral_codes"
     __table_args__ = (
         UniqueConstraint("code", name="uq_referral_codes_code"),
+        UniqueConstraint("id", "owner_id", name="uq_referral_codes_id_owner"),
         CheckConstraint("max_uses IS NULL OR max_uses > 0", name="ck_referral_codes_max_uses"),
         Index("ix_referral_codes_owner_id", "owner_id"),
     )
@@ -90,6 +96,7 @@ class ReferralClick(Base):
     __tablename__ = "referral_clicks"
     __table_args__ = (
         UniqueConstraint("request_id", name="uq_referral_clicks_request_id"),
+        UniqueConstraint("id", "referral_code_id", name="uq_referral_clicks_id_code"),
         Index("ix_referral_clicks_visitor_clicked_id", "visitor_id", "clicked_at", "id"),
         Index("ix_referral_clicks_code_clicked_at", "referral_code_id", "clicked_at"),
     )
@@ -105,3 +112,53 @@ class ReferralClick(Base):
     source: Mapped[str | None] = mapped_column(String(128), nullable=True)
     campaign: Mapped[str | None] = mapped_column(String(128), nullable=True)
     request_id: Mapped[UUID] = mapped_column(nullable=False)
+
+
+class ReferralAttribution(Base):
+    __tablename__ = "referral_attributions"
+    __table_args__ = (
+        UniqueConstraint("referred_user_id", name="uq_referral_attributions_referred_user"),
+        CheckConstraint(
+            "referrer_id <> referred_user_id", name="ck_referral_attributions_not_self"
+        ),
+        ForeignKeyConstraint(
+            ["referral_code_id", "referrer_id"],
+            ["referral_codes.id", "referral_codes.owner_id"],
+            name="fk_referral_attributions_code_owner",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["click_id", "referral_code_id"],
+            ["referral_clicks.id", "referral_clicks.referral_code_id"],
+            name="fk_referral_attributions_click_code",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_referral_attributions_code_id", "referral_code_id"),
+        Index("ix_referral_attributions_click_id", "click_id"),
+        Index("ix_referral_attributions_referrer_attributed", "referrer_id", "attributed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    referral_code_id: Mapped[UUID] = mapped_column(nullable=False)
+    referrer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    referred_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    click_id: Mapped[UUID] = mapped_column(nullable=False)
+    attributed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    attribution_model: Mapped[AttributionModel] = mapped_column(
+        Enum(
+            AttributionModel,
+            values_callable=lambda enum: [member.value for member in enum],
+            name="referral_attribution_model",
+            native_enum=False,
+            create_constraint=True,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=AttributionModel.LAST_REFERRAL_CLICK,
+    )
