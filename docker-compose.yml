@@ -4,6 +4,10 @@ x-app: &app
     - path: .env
       required: false
   environment:
+    APP_ENV: ${APP_ENV:-development}
+    JWT_SECRET: ${JWT_SECRET:-local-development-only-change-this-jwt-secret-before-deployment}
+    JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-15}
+    JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
     DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://referral:local-development-only@postgres:5432/referral_analytics}
     REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}

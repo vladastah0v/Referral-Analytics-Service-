@@ -12,6 +12,9 @@ dependencies = [
     "pydantic-settings>=2.7,<3.0",
     "redis>=5.2,<7.0",
     "celery[redis]>=5.4,<6.0",
+    "argon2-cffi>=23.1,<26",
+    "pyjwt>=2.10,<3",
+    "email-validator>=2.2,<3",
 ]
 
 [dependency-groups]
