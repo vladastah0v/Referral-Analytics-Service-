@@ -84,3 +84,21 @@ class LeadRepository:
                 await self.session.scalars(statement.order_by(*order).limit(limit).offset(offset))
             ).all()
         )
+
+    async def lock_for_status_update(self, lead_id, user):
+        if user.role == UserRole.CUSTOMER:
+            return None
+        return await self.session.scalar(
+            select(Lead).where(Lead.id == lead_id, self._visibility(user)).with_for_update()
+        )
+
+    def add_status_history(self, lead_id, user_id, previous, new, changed_at):
+        self.session.add(
+            LeadStatusHistory(
+                lead_id=lead_id,
+                changed_by=user_id,
+                previous_status=previous,
+                new_status=new,
+                changed_at=changed_at,
+            )
+        )

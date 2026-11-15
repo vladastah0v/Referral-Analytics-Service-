@@ -32,3 +32,8 @@ class LeadPage(BaseModel):
     items: list[LeadRead]
     limit: int
     offset: int
+
+
+class LeadStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: LeadStatus

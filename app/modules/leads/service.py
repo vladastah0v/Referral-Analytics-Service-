@@ -2,9 +2,10 @@ import hashlib
 import hmac
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.leads.models import Lead
+from app.modules.leads.models import Lead, LeadStatus
 from app.modules.leads.repository import LeadRepository
 from app.modules.leads.schemas import LeadCreate
 from app.modules.referrals.repository import ReferralAttributionRepository
@@ -15,6 +16,10 @@ class LeadCreationConflictError(Exception):
 
 
 class InvalidLeadRangeError(Exception):
+    pass
+
+
+class InvalidLeadTransitionError(Exception):
     pass
 
 
@@ -83,3 +88,34 @@ class LeadService:
         return await self.leads.list_visible(
             user, status, manager_id, date_from, date_to, sort, limit, offset
         )
+
+    async def change_status(self, lead_id, user, new_status):
+        transitions = {
+            LeadStatus.NEW: {LeadStatus.CONTACTED, LeadStatus.LOST},
+            LeadStatus.CONTACTED: {LeadStatus.QUALIFIED, LeadStatus.LOST},
+            LeadStatus.QUALIFIED: {LeadStatus.CONVERTED, LeadStatus.LOST},
+            LeadStatus.CONVERTED: set(),
+            LeadStatus.LOST: set(),
+        }
+        try:
+            lead = await self.leads.lock_for_status_update(lead_id, user)
+            if lead is None:
+                return None
+            previous = lead.status
+            if new_status not in transitions[previous]:
+                raise InvalidLeadTransitionError
+            now = await self.session.scalar(select(func.clock_timestamp()))
+            lead.status = new_status
+            lead.updated_at = now
+            if new_status == LeadStatus.QUALIFIED:
+                lead.qualified_at = now
+            if new_status == LeadStatus.CONVERTED:
+                lead.converted_at = now
+            self.leads.add_status_history(lead.id, user.id, previous, new_status, now)
+            await self.session.flush()
+            await self.session.refresh(lead)
+            await self.session.commit()
+            return lead
+        except Exception:
+            await self.session.rollback()
+            raise
