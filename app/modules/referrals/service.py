@@ -1,11 +1,17 @@
 import secrets
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.referrals.models import ReferralCode
-from app.modules.referrals.repository import ReferralCodeRepository
-from app.modules.referrals.schemas import ReferralCodeCreate, ReferralCodeUpdate
+from app.modules.referrals.models import ReferralCode, ReferralProgram
+from app.modules.referrals.repository import ReferralCodeRepository, ReferralProgramRepository
+from app.modules.referrals.schemas import (
+    ReferralCodeCreate,
+    ReferralCodeUpdate,
+    ReferralProgramCreate,
+    ReferralProgramUpdate,
+)
 
 
 class ReferralCodeService:
@@ -39,3 +45,37 @@ class ReferralCodeService:
         if record is not None:
             await self.session.commit()
         return record
+
+
+class InvalidProgramUpdateError(Exception):
+    pass
+
+
+class ReferralProgramService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.programs = ReferralProgramRepository(session)
+
+    async def create(self, data: ReferralProgramCreate) -> ReferralProgram:
+        program = ReferralProgram(**data.model_dump())
+        self.programs.add(program)
+        await self.session.commit()
+        return program
+
+    async def list(self, limit: int, offset: int) -> list[ReferralProgram]:
+        return await self.programs.list(limit, offset)
+
+    async def update(self, program_id: UUID, data: ReferralProgramUpdate) -> ReferralProgram | None:
+        program = await self.programs.get_for_update(program_id)
+        if program is None:
+            return None
+        changes = data.model_dump(exclude_unset=True)
+        current = {field: getattr(program, field) for field in ReferralProgramCreate.model_fields}
+        try:
+            validated = ReferralProgramCreate.model_validate(current | changes)
+        except ValidationError as exc:
+            raise InvalidProgramUpdateError from exc
+        for field in changes:
+            setattr(program, field, getattr(validated, field))
+        await self.session.commit()
+        return program

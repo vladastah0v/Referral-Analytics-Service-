@@ -5,7 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.referrals.models import ReferralCode
+from app.modules.referrals.models import ReferralCode, ReferralProgram
 
 
 class ReferralCodeRepository:
@@ -48,5 +48,23 @@ class ReferralCodeRepository:
             .where(ReferralCode.id == code_id, ReferralCode.owner_id == owner_id)
             .values(**changes)
             .returning(ReferralCode)
+        )
+        return await self.session.scalar(statement)
+
+
+class ReferralProgramRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    def add(self, program: ReferralProgram) -> None:
+        self.session.add(program)
+
+    async def list(self, limit: int, offset: int) -> list[ReferralProgram]:
+        statement = select(ReferralProgram).order_by(ReferralProgram.id).limit(limit).offset(offset)
+        return list((await self.session.scalars(statement)).all())
+
+    async def get_for_update(self, program_id: UUID) -> ReferralProgram | None:
+        statement = (
+            select(ReferralProgram).where(ReferralProgram.id == program_id).with_for_update()
         )
         return await self.session.scalar(statement)

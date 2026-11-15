@@ -34,6 +34,7 @@ from app.main import (
     validation_error_handler,
 )
 from app.modules.auth.router import router as auth_router
+from app.modules.referrals.admin_router import router as referral_admin_router
 from app.modules.referrals.router import router as referrals_router
 from app.modules.users.models import User, UserRole
 from app.modules.users.router import router as users_router
@@ -68,12 +69,16 @@ def test_database_url() -> str:
 async def db_engine(test_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(test_database_url, poolclass=NullPool)
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE TABLE auth_sessions, users CASCADE"))
+        await connection.execute(
+            text("TRUNCATE TABLE auth_sessions, users, referral_programs CASCADE")
+        )
     try:
         yield engine
     finally:
         async with engine.begin() as connection:
-            await connection.execute(text("TRUNCATE TABLE auth_sessions, users CASCADE"))
+            await connection.execute(
+                text("TRUNCATE TABLE auth_sessions, users, referral_programs CASCADE")
+            )
         await engine.dispose()
 
 
@@ -87,6 +92,7 @@ def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
     api = FastAPI()
     api.include_router(auth_router, prefix="/api/v1")
     api.include_router(referrals_router, prefix="/api/v1")
+    api.include_router(referral_admin_router, prefix="/api/v1")
     api.include_router(users_router, prefix="/api/v1")
     api.add_exception_handler(RequestValidationError, validation_error_handler)
     api.add_exception_handler(AuthenticationError, authentication_error_handler)
