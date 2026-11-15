@@ -42,3 +42,20 @@ class LeadStatusUpdate(BaseModel):
 class LeadAssignmentUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     manager_id: UUID | None
+
+
+class LeadStatusHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    lead_id: UUID
+    previous_status: LeadStatus | None
+    new_status: LeadStatus
+    changed_by: UUID
+    changed_at: datetime
+
+
+class LeadStatusHistoryPage(BaseModel):
+    items: list[LeadStatusHistoryRead]
+    limit: int
+    offset: int

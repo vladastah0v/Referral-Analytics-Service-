@@ -11,6 +11,8 @@ from app.modules.leads.schemas import (
     LeadCreate,
     LeadPage,
     LeadRead,
+    LeadStatusHistoryPage,
+    LeadStatusHistoryRead,
     LeadStatusUpdate,
 )
 from app.modules.leads.service import (
@@ -125,3 +127,23 @@ async def assign_lead(
         raise HTTPException(status_code=404, detail="Lead not found")
     response.headers["Cache-Control"] = "private, no-store"
     return LeadRead.model_validate(lead)
+
+
+@router.get("/{lead_id}/history", response_model=LeadStatusHistoryPage)
+async def read_status_history(
+    lead_id: UUID,
+    user: CurrentUser,
+    session: SessionDependency,
+    response: Response,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=2147483647)] = 0,
+) -> LeadStatusHistoryPage:
+    records = await LeadService(session).get_status_history(lead_id, user, limit, offset)
+    if records is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    return LeadStatusHistoryPage(
+        items=[LeadStatusHistoryRead.model_validate(record) for record in records],
+        limit=limit,
+        offset=offset,
+    )

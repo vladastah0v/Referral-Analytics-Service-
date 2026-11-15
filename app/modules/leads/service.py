@@ -141,3 +141,11 @@ class LeadService:
         except Exception:
             await self.session.rollback()
             raise
+
+    async def get_status_history(self, lead_id, user, limit, offset):
+        if await self.leads.lock_visible_for_history(lead_id, user) is None:
+            return None
+        records = await self.leads.list_status_history(lead_id, limit, offset)
+        # Release the read lock before sending the response.
+        await self.session.commit()
+        return records

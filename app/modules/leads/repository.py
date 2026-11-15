@@ -112,3 +112,23 @@ class LeadRepository:
             .where(User.id == manager_id, User.role == UserRole.MANAGER, User.is_active.is_(True))
             .with_for_update(read=True)
         )
+
+    async def lock_visible_for_history(self, lead_id: UUID, user: User) -> UUID | None:
+        statement = (
+            select(Lead.id)
+            .where(Lead.id == lead_id, self._visibility(user))
+            .with_for_update(read=True)
+        )
+        return await self.session.scalar(statement)
+
+    async def list_status_history(
+        self, lead_id: UUID, limit: int, offset: int
+    ) -> list[LeadStatusHistory]:
+        statement = (
+            select(LeadStatusHistory)
+            .where(LeadStatusHistory.lead_id == lead_id)
+            .order_by(LeadStatusHistory.changed_at.asc(), LeadStatusHistory.id.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list((await self.session.scalars(statement)).all())
