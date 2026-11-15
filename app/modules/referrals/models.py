@@ -118,6 +118,7 @@ class ReferralAttribution(Base):
     __tablename__ = "referral_attributions"
     __table_args__ = (
         UniqueConstraint("referred_user_id", name="uq_referral_attributions_referred_user"),
+        UniqueConstraint("id", "referred_user_id", name="uq_referral_attributions_id_user"),
         CheckConstraint(
             "referrer_id <> referred_user_id", name="ck_referral_attributions_not_self"
         ),

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import get_settings
 from app.core.database import Base
 from app.modules.auth import models as auth_models  # noqa: F401
+from app.modules.leads import models as lead_models  # noqa: F401
 from app.modules.referrals import models as referral_models  # noqa: F401
 from app.modules.users import models as user_models  # noqa: F401
 
