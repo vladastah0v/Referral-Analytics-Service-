@@ -37,3 +37,8 @@ class LeadPage(BaseModel):
 class LeadStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: LeadStatus
+
+
+class LeadAssignmentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    manager_id: UUID | None

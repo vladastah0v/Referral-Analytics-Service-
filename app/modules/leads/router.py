@@ -1,18 +1,26 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import UUID4, AwareDatetime
 
-from app.core.dependencies import CurrentUser, SessionDependency
+from app.core.dependencies import CurrentUser, SessionDependency, require_roles
 from app.modules.leads.models import LeadStatus
-from app.modules.leads.schemas import LeadCreate, LeadPage, LeadRead, LeadStatusUpdate
+from app.modules.leads.schemas import (
+    LeadAssignmentUpdate,
+    LeadCreate,
+    LeadPage,
+    LeadRead,
+    LeadStatusUpdate,
+)
 from app.modules.leads.service import (
     InvalidLeadRangeError,
     InvalidLeadTransitionError,
+    InvalidManagerError,
     LeadCreationConflictError,
     LeadService,
 )
+from app.modules.users.models import User, UserRole
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -95,6 +103,24 @@ async def update_status(
         lead = await LeadService(session).change_status(lead_id, user, data.status)
     except InvalidLeadTransitionError as exc:
         raise HTTPException(status_code=409, detail="Invalid status transition") from exc
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    return LeadRead.model_validate(lead)
+
+
+@router.patch("/{lead_id}/assign", response_model=LeadRead)
+async def assign_lead(
+    lead_id: UUID,
+    data: LeadAssignmentUpdate,
+    session: SessionDependency,
+    response: Response,
+    admin: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> LeadRead:
+    try:
+        lead = await LeadService(session).assign(lead_id, data.manager_id)
+    except InvalidManagerError as exc:
+        raise HTTPException(status_code=422, detail="Manager unavailable") from exc
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     response.headers["Cache-Control"] = "private, no-store"

@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.leads.models import Lead, LeadStatus, LeadStatusHistory
-from app.modules.users.models import UserRole
+from app.modules.users.models import User, UserRole
 
 
 class LeadRepository:
@@ -101,4 +101,14 @@ class LeadRepository:
                 new_status=new,
                 changed_at=changed_at,
             )
+        )
+
+    async def lock_for_assignment(self, lead_id):
+        return await self.session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
+
+    async def lock_active_manager(self, manager_id):
+        return await self.session.scalar(
+            select(User)
+            .where(User.id == manager_id, User.role == UserRole.MANAGER, User.is_active.is_(True))
+            .with_for_update(read=True)
         )

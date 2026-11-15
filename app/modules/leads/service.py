@@ -23,6 +23,10 @@ class InvalidLeadTransitionError(Exception):
     pass
 
 
+class InvalidManagerError(Exception):
+    pass
+
+
 class LeadService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -114,6 +118,24 @@ class LeadService:
             self.leads.add_status_history(lead.id, user.id, previous, new_status, now)
             await self.session.flush()
             await self.session.refresh(lead)
+            await self.session.commit()
+            return lead
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def assign(self, lead_id, manager_id):
+        try:
+            lead = await self.leads.lock_for_assignment(lead_id)
+            if lead is None:
+                return None
+            if manager_id is not None and await self.leads.lock_active_manager(manager_id) is None:
+                raise InvalidManagerError
+            if lead.assigned_manager_id != manager_id:
+                lead.assigned_manager_id = manager_id
+                lead.updated_at = await self.session.scalar(select(func.clock_timestamp()))
+                await self.session.flush()
+                await self.session.refresh(lead)
             await self.session.commit()
             return lead
         except Exception:
