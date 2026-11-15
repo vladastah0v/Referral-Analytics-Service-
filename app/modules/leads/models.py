@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     String,
+    UniqueConstraint,
     func,
     text,
 )
@@ -47,6 +48,13 @@ class Lead(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint("source ~ '[^[:space:]]'", name="ck_leads_source_not_blank"),
+        UniqueConstraint("user_id", "creation_request_id", name="uq_leads_user_creation_request"),
+        CheckConstraint(
+            "(creation_request_id IS NULL AND creation_request_hash IS NULL) OR "
+            "(creation_request_id IS NOT NULL AND creation_request_hash IS NOT NULL "
+            "AND creation_request_hash ~ '^[0-9a-f]{64}$')",
+            name="ck_leads_creation_request_pair",
+        ),
         Index("ix_leads_created_id", "created_at", "id"),
         Index("ix_leads_user_created", "user_id", "created_at", "id"),
         Index("ix_leads_status_created", "status", "created_at", "id"),
@@ -69,6 +77,8 @@ class Lead(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     source: Mapped[str] = mapped_column(String(128), nullable=False)
+    creation_request_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    creation_request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

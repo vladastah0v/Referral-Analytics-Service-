@@ -198,3 +198,44 @@ async def test_lead_attribution_belongs_to_same_user(db_engine: AsyncEngine) -> 
             connection, delete(ReferralAttribution).where(ReferralAttribution.id == attribution_id)
         )
         await transaction.rollback()
+
+
+async def test_creation_request_database_constraints(db_engine: AsyncEngine) -> None:
+    async with db_engine.connect() as connection:
+        transaction = await connection.begin()
+        first, second = [await add_user(connection) for _ in range(2)]
+        key = uuid4()
+        base = {"user_id": first, "source": "website"}
+        await rejected(connection, insert(Lead).values(**base, id=uuid4(), creation_request_id=key))
+        await rejected(
+            connection, insert(Lead).values(**base, id=uuid4(), creation_request_hash="a" * 64)
+        )
+        await rejected(
+            connection,
+            insert(Lead).values(
+                **base, id=uuid4(), creation_request_id=key, creation_request_hash="z" * 64
+            ),
+        )
+        await connection.execute(
+            insert(Lead).values(
+                **base, id=uuid4(), creation_request_id=key, creation_request_hash="a" * 64
+            )
+        )
+        await rejected(
+            connection,
+            insert(Lead).values(
+                **base, id=uuid4(), creation_request_id=key, creation_request_hash="a" * 64
+            ),
+        )
+        await connection.execute(
+            insert(Lead).values(
+                id=uuid4(),
+                user_id=second,
+                source="website",
+                creation_request_id=key,
+                creation_request_hash="a" * 64,
+            )
+        )
+        await connection.execute(insert(Lead).values(**base, id=uuid4()))
+        await connection.execute(insert(Lead).values(**base, id=uuid4()))
+        await transaction.rollback()
