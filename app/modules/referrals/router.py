@@ -1,9 +1,15 @@
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.dependencies import CurrentUser, SessionDependency
-from app.modules.referrals.schemas import ReferralCodeCreate, ReferralCodePage, ReferralCodeRead
+from app.modules.referrals.schemas import (
+    ReferralCodeCreate,
+    ReferralCodePage,
+    ReferralCodeRead,
+    ReferralCodeUpdate,
+)
 from app.modules.referrals.service import ReferralCodeService
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
@@ -30,3 +36,23 @@ async def list_codes(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/codes/{code_id}", response_model=ReferralCodeRead)
+async def get_code(
+    code_id: UUID, user: CurrentUser, session: SessionDependency
+) -> ReferralCodeRead:
+    record = await ReferralCodeService(session).get_for_owner(code_id, user.id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Referral code not found")
+    return ReferralCodeRead.model_validate(record)
+
+
+@router.patch("/codes/{code_id}", response_model=ReferralCodeRead)
+async def update_code(
+    code_id: UUID, data: ReferralCodeUpdate, user: CurrentUser, session: SessionDependency
+) -> ReferralCodeRead:
+    record = await ReferralCodeService(session).update_for_owner(code_id, user.id, data)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Referral code not found")
+    return ReferralCodeRead.model_validate(record)

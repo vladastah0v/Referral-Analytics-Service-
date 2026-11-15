@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,3 +32,21 @@ class ReferralCodeRepository:
             .offset(offset)
         )
         return list((await self.session.scalars(statement)).all())
+
+    async def get_for_owner(self, code_id: UUID, owner_id: UUID) -> ReferralCode | None:
+        return await self.session.scalar(
+            select(ReferralCode).where(
+                ReferralCode.id == code_id, ReferralCode.owner_id == owner_id
+            )
+        )
+
+    async def update_for_owner(
+        self, code_id: UUID, owner_id: UUID, changes: dict
+    ) -> ReferralCode | None:
+        statement = (
+            update(ReferralCode)
+            .where(ReferralCode.id == code_id, ReferralCode.owner_id == owner_id)
+            .values(**changes)
+            .returning(ReferralCode)
+        )
+        return await self.session.scalar(statement)

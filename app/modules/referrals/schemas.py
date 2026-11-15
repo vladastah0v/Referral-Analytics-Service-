@@ -2,7 +2,15 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 
 class ReferralCodeCreate(BaseModel):
@@ -19,6 +27,27 @@ class ReferralCodeCreate(BaseModel):
             if value <= datetime.now(UTC):
                 raise ValueError("Expiration must be in the future")
         return value
+
+
+class ReferralCodeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_active: StrictBool | None = None
+    expires_at: AwareDatetime | None = None
+    max_uses: Annotated[int, Field(strict=True, ge=1, le=2_147_483_647)] | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def validate_expiry(cls, value: datetime | None) -> datetime | None:
+        return ReferralCodeCreate.validate_expiry(value)
+
+    @model_validator(mode="after")
+    def validate_update(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one setting must be provided")
+        if "is_active" in self.model_fields_set and self.is_active is not False:
+            raise ValueError("Only deactivation is permitted")
+        return self
 
 
 class ReferralCodeRead(BaseModel):

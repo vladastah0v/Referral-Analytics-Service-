@@ -63,3 +63,70 @@ async def test_generated_code_collision_is_retried(client: AsyncClient, monkeypa
     assert first.status_code == second.status_code == 201
     assert first.json()["code"] == "existing-code"
     assert second.json()["code"] == "new-code"
+
+
+async def test_detail_update_and_owner_access(client: AsyncClient) -> None:
+    owner = await authenticated(client, "owner@example.com")
+    other = await authenticated(client, "other@example.com")
+    created = (await client.post(URL, headers=owner, json={"max_uses": 5})).json()
+    code_url = f"{URL}/{created['id']}"
+    assert (await client.get(code_url, headers=owner)).json() == created
+    for headers in (other,):
+        assert (await client.get(code_url, headers=headers)).status_code == 404
+        assert (
+            await client.patch(code_url, headers=headers, json={"is_active": False})
+        ).status_code == 404
+    missing_url = f"{URL}/{uuid4()}"
+    assert (await client.get(missing_url, headers=owner)).status_code == 404
+    assert (await client.patch(missing_url, headers=owner, json={"max_uses": 2})).status_code == 404
+    assert (await client.get(code_url)).status_code == 401
+    assert (await client.patch(code_url, json={"max_uses": 2})).status_code == 401
+    assert (await client.get(f"{URL}/invalid", headers=owner)).status_code == 422
+    expiry = (datetime.now(UTC) + timedelta(days=5)).isoformat()
+    result = await client.patch(
+        code_url, headers=owner, json={"expires_at": expiry, "max_uses": 10}
+    )
+    assert result.status_code == 200
+    assert result.json()["max_uses"] == 10 and result.json()["expires_at"] is not None
+    result = await client.patch(
+        code_url, headers=owner, json={"expires_at": None, "max_uses": None}
+    )
+    assert result.json()["expires_at"] is None and result.json()["max_uses"] is None
+    result = await client.patch(code_url, headers=owner, json={"is_active": False})
+    assert result.status_code == 200 and result.json()["is_active"] is False
+    assert (await client.get(code_url, headers=owner)).json()["is_active"] is False
+
+
+async def test_update_rejects_forbidden_or_invalid_values(client: AsyncClient) -> None:
+    headers = await authenticated(client, "owner@example.com")
+    created = (await client.post(URL, headers=headers, json={})).json()
+    code_url = f"{URL}/{created['id']}"
+    for payload in (
+        {},
+        {"is_active": True},
+        {"is_active": None},
+        {"is_active": 0},
+        {"max_uses": 0},
+        {"max_uses": True},
+        {"expires_at": "2020-01-01T00:00:00Z"},
+        {"expires_at": "2099-01-01T00:00:00"},
+        {"owner_id": str(uuid4())},
+        {"code": "other"},
+    ):
+        assert (await client.patch(code_url, headers=headers, json=payload)).status_code == 422
+    assert (await client.get(code_url, headers=headers)).json() == created
+
+
+async def test_concurrent_updates_preserve_distinct_fields(client: AsyncClient) -> None:
+    import asyncio
+
+    headers = await authenticated(client, "owner@example.com")
+    created = (await client.post(URL, headers=headers, json={})).json()
+    code_url = f"{URL}/{created['id']}"
+    results = await asyncio.gather(
+        client.patch(code_url, headers=headers, json={"is_active": False}),
+        client.patch(code_url, headers=headers, json={"max_uses": 8}),
+    )
+    assert [response.status_code for response in results] == [200, 200]
+    current = (await client.get(code_url, headers=headers)).json()
+    assert current["is_active"] is False and current["max_uses"] == 8
