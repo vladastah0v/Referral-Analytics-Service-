@@ -26,3 +26,9 @@ class LeadRead(BaseModel):
     updated_at: datetime
     qualified_at: datetime | None
     converted_at: datetime | None
+
+
+class LeadPage(BaseModel):
+    items: list[LeadRead]
+    limit: int
+    offset: int

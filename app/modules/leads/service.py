@@ -14,6 +14,10 @@ class LeadCreationConflictError(Exception):
     pass
 
 
+class InvalidLeadRangeError(Exception):
+    pass
+
+
 class LeadService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -69,3 +73,13 @@ class LeadService:
         except Exception:
             await self.session.rollback()
             raise
+
+    async def get_visible(self, lead_id, user):
+        return await self.leads.get_visible(lead_id, user)
+
+    async def list_visible(self, user, status, manager_id, date_from, date_to, sort, limit, offset):
+        if date_from is not None and date_to is not None and date_from >= date_to:
+            raise InvalidLeadRangeError
+        return await self.leads.list_visible(
+            user, status, manager_id, date_from, date_to, sort, limit, offset
+        )
