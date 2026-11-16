@@ -98,6 +98,10 @@ class Order(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    external_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -133,6 +137,12 @@ class OrderFinancialEvent(Base):
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_order_financial_events_currency"),
         Index("ix_order_financial_events_order_occurred", "order_id", "occurred_at", "id"),
         Index("ix_order_financial_events_currency_occurred", "currency", "occurred_at"),
+        Index(
+            "uq_order_financial_events_one_payment",
+            "order_id",
+            unique=True,
+            postgresql_where=text("event_type = 'payment'"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

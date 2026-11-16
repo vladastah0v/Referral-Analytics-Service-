@@ -33,10 +33,13 @@ from app.main import (
     permission_error_handler,
     validation_error_handler,
 )
+from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
 from app.modules.leads.router import router as leads_router
+from app.modules.orders.router import router as orders_router
 from app.modules.referrals.admin_router import router as referral_admin_router
 from app.modules.referrals.router import router as referrals_router
+from app.modules.tracking.router import router as events_router
 from app.modules.users.models import User, UserRole
 from app.modules.users.router import router as users_router
 
@@ -71,14 +74,20 @@ async def db_engine(test_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(test_database_url, poolclass=NullPool)
     async with engine.begin() as connection:
         await connection.execute(
-            text("TRUNCATE TABLE auth_sessions, users, referral_programs CASCADE")
+            text(
+                "TRUNCATE TABLE auth_sessions, users, referral_programs, "
+                "integration_credentials CASCADE"
+            )
         )
     try:
         yield engine
     finally:
         async with engine.begin() as connection:
             await connection.execute(
-                text("TRUNCATE TABLE auth_sessions, users, referral_programs CASCADE")
+                text(
+                    "TRUNCATE TABLE auth_sessions, users, referral_programs, "
+                    "integration_credentials CASCADE"
+                )
             )
         await engine.dispose()
 
@@ -92,6 +101,9 @@ def session_maker(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
     api = FastAPI()
     api.include_router(auth_router, prefix="/api/v1")
+    api.include_router(orders_router, prefix="/api/v1")
+    api.include_router(analytics_router, prefix="/api/v1")
+    api.include_router(events_router, prefix="/api/v1")
     api.include_router(leads_router, prefix="/api/v1")
     api.include_router(referrals_router, prefix="/api/v1")
     api.include_router(referral_admin_router, prefix="/api/v1")
