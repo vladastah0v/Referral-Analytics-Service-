@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.orders.models import FinancialEventType, Order, OrderFinancialEvent, OrderStatus
 from app.modules.referrals.models import ReferralAttribution
+from app.modules.rewards.service import RewardAmountOverflow, RewardService
 from app.modules.tracking.models import Event
 from app.modules.users.models import User
 
@@ -143,21 +144,21 @@ class OrderEventProcessor:
             if event.occurred_at < order.paid_at:
                 raise RejectedOrderEvent("financial_event_before_payment")
 
-        self.session.add(
-            OrderFinancialEvent(
-                order_id=order.id,
-                source_system=event.source_system,
-                external_financial_event_id=operation_id,
-                event_type=kind,
-                amount=amount,
-                currency=order.currency,
-                occurred_at=event.occurred_at,
-            )
+        operation = OrderFinancialEvent(
+            order_id=order.id,
+            source_system=event.source_system,
+            external_financial_event_id=operation_id,
+            event_type=kind,
+            amount=amount,
+            currency=order.currency,
+            occurred_at=event.occurred_at,
         )
+        self.session.add(operation)
         await self.session.flush()
         if kind == FinancialEventType.PAYMENT:
             order.status = OrderStatus.PAID
             order.paid_at = event.occurred_at
+            await self._reward(order, operation)
             return
 
         # Re-evaluate the complete chronological balance in PostgreSQL, including late events.
@@ -208,3 +209,11 @@ class OrderEventProcessor:
             order.status = OrderStatus.REFUNDED if balance == 0 else OrderStatus.PARTIALLY_REFUNDED
         else:
             order.status = OrderStatus.PAID
+
+        await self._reward(order, operation)
+
+    async def _reward(self, order: Order, operation: OrderFinancialEvent) -> None:
+        try:
+            await RewardService(self.session).reconcile(order, operation)
+        except RewardAmountOverflow as exc:
+            raise RejectedOrderEvent("reward_amount_overflow") from exc

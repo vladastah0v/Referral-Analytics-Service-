@@ -131,6 +131,9 @@ class ReferralRewardHistory(Base):
     __tablename__ = "referral_reward_history"
     __table_args__ = (
         UniqueConstraint("reward_id", "revision", name="uq_referral_reward_history_revision"),
+        UniqueConstraint(
+            "reward_id", "financial_event_id", name="uq_reward_history_financial_event"
+        ),
         CheckConstraint("revision > 0", name="ck_referral_reward_history_revision"),
         CheckConstraint(
             "reward_amount >= 0 AND reward_amount <> 'NaN'::numeric",
@@ -142,6 +145,14 @@ class ReferralRewardHistory(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     reward_id: Mapped[UUID] = mapped_column(
         ForeignKey("referral_rewards.id", ondelete="RESTRICT"), nullable=False
+    )
+    financial_event_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "order_financial_events.id",
+            ondelete="RESTRICT",
+            name="fk_reward_history_financial_event",
+        ),
+        nullable=True,
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     reward_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
