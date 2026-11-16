@@ -45,6 +45,9 @@ class Order(Base):
     __table_args__ = (
         UniqueConstraint("source_system", "external_order_id", name="uq_orders_source_external_id"),
         UniqueConstraint("id", "currency", name="uq_orders_id_currency"),
+        UniqueConstraint(
+            "id", "referral_attribution_id", "currency", name="uq_orders_id_attribution_currency"
+        ),
         ForeignKeyConstraint(
             ["referral_attribution_id", "user_id"],
             ["referral_attributions.id", "referral_attributions.referred_user_id"],

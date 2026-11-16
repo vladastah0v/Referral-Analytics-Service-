@@ -11,6 +11,7 @@ from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.leads import models as lead_models  # noqa: F401
 from app.modules.orders import models as order_models  # noqa: F401
 from app.modules.referrals import models as referral_models  # noqa: F401
+from app.modules.rewards import models as reward_models  # noqa: F401
 from app.modules.tracking import models as tracking_models  # noqa: F401
 from app.modules.users import models as user_models  # noqa: F401
 
