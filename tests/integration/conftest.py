@@ -39,6 +39,7 @@ from app.modules.leads.router import router as leads_router
 from app.modules.orders.router import router as orders_router
 from app.modules.referrals.admin_router import router as referral_admin_router
 from app.modules.referrals.router import router as referrals_router
+from app.modules.rewards.router import router as rewards_router
 from app.modules.tracking.router import router as events_router
 from app.modules.users.models import User, UserRole
 from app.modules.users.router import router as users_router
@@ -102,6 +103,7 @@ def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
     api = FastAPI()
     api.include_router(auth_router, prefix="/api/v1")
     api.include_router(orders_router, prefix="/api/v1")
+    api.include_router(rewards_router, prefix="/api/v1")
     api.include_router(analytics_router, prefix="/api/v1")
     api.include_router(events_router, prefix="/api/v1")
     api.include_router(leads_router, prefix="/api/v1")

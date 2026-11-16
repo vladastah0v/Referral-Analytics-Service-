@@ -1,4 +1,5 @@
 from decimal import ROUND_HALF_UP, Decimal, localcontext
+from uuid import UUID
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -141,3 +142,70 @@ class RewardService:
             )
         )
         await self.session.flush()
+
+
+class RewardApprovalConflict(Exception):
+    pass
+
+
+async def approve_reward(
+    session: AsyncSession, reward_id: UUID, actor_id: UUID, expected_revision: int
+) -> dict | None:
+    from app.modules.rewards.repository import reward_record
+
+    # Read only the order ID first, so the first write lock is always the order lock.
+    order_id = await session.scalar(
+        select(ReferralReward.order_id).where(ReferralReward.id == reward_id)
+    )
+    if order_id is None:
+        return None
+    await session.execute(select(Order.id).where(Order.id == order_id).with_for_update())
+    reward = await session.scalar(
+        select(ReferralReward)
+        .where(ReferralReward.id == reward_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if reward is None:
+        return None
+    latest = await session.scalar(
+        select(ReferralRewardHistory)
+        .where(ReferralRewardHistory.reward_id == reward_id)
+        .order_by(ReferralRewardHistory.revision.desc())
+        .limit(1)
+    )
+    if latest is None:
+        raise RewardApprovalConflict
+    if reward.status == RewardStatus.APPROVED:
+        if latest.reason == "approved" and expected_revision in (
+            latest.revision,
+            latest.revision - 1,
+        ):
+            result = reward_record(reward, latest.revision)
+            await session.commit()
+            return result
+        raise RewardApprovalConflict
+    if (
+        reward.status != RewardStatus.PENDING
+        or reward.reward_amount <= 0
+        or latest.revision != expected_revision
+    ):
+        raise RewardApprovalConflict
+    approved_at = await session.scalar(select(func.clock_timestamp()))
+    reward.status = RewardStatus.APPROVED
+    reward.approved_at = approved_at
+    revision = latest.revision + 1
+    session.add(
+        ReferralRewardHistory(
+            reward_id=reward.id,
+            revision=revision,
+            reward_amount=reward.reward_amount,
+            status=reward.status,
+            reason="approved",
+            actor_id=actor_id,
+        )
+    )
+    await session.flush()
+    result = reward_record(reward, revision)
+    await session.commit()
+    return result
