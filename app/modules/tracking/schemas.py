@@ -64,6 +64,21 @@ class CancelledPayload(BaseModel):
     external_order_id: Identifier
 
 
+class ClickFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    click_id: UUID
+
+
+class RegistrationFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    user_id: UUID
+
+
+class LeadFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lead_id: UUID
+
+
 class EventCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     external_event_id: Annotated[
@@ -73,7 +88,15 @@ class EventCreate(BaseModel):
         ),
     ]
     event_type: Literal[
-        "order_created", "order_paid", "order_cancelled", "order_refunded", "order_adjusted"
+        "order_created",
+        "order_paid",
+        "order_cancelled",
+        "order_refunded",
+        "order_adjusted",
+        "referral_clicked",
+        "user_registered",
+        "lead_created",
+        "lead_qualified",
     ]
     occurred_at: AwareDatetime
     payload: dict[str, Any]
@@ -91,6 +114,10 @@ class EventCreate(BaseModel):
     @model_validator(mode="after")
     def validate_payload(self):
         payload_type = {
+            "referral_clicked": ClickFact,
+            "user_registered": RegistrationFact,
+            "lead_created": LeadFact,
+            "lead_qualified": LeadFact,
             "order_created": CreatedPayload,
             "order_paid": FinancialPayload,
             "order_refunded": FinancialPayload,

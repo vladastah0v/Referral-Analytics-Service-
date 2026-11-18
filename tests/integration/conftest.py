@@ -79,7 +79,8 @@ async def db_engine(test_database_url: str) -> AsyncIterator[AsyncEngine]:
         await connection.execute(
             text(
                 "TRUNCATE TABLE auth_sessions, users, referral_programs, "
-                "integration_credentials CASCADE"
+                "integration_credentials, analytics_snapshot_requests, "
+                "analytics_snapshot_failures, analytics_daily_snapshots CASCADE"
             )
         )
     try:
@@ -89,7 +90,8 @@ async def db_engine(test_database_url: str) -> AsyncIterator[AsyncEngine]:
             await connection.execute(
                 text(
                     "TRUNCATE TABLE auth_sessions, users, referral_programs, "
-                    "integration_credentials CASCADE"
+                    "integration_credentials, analytics_snapshot_requests, "
+                    "analytics_snapshot_failures, analytics_daily_snapshots CASCADE"
                 )
             )
         await engine.dispose()

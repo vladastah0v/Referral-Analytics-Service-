@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     analytics_cache_namespace: str = Field(
         default="referral-analytics", min_length=1, max_length=128
     )
+    celery_result_backend: str = "redis://localhost:6379/2"
     celery_broker_url: str = "redis://localhost:6379/1"
     jwt_secret: SecretStr = SecretStr(DEVELOPMENT_JWT_SECRET)
     jwt_access_ttl_minutes: int = Field(default=15, ge=1, le=1440)

@@ -9,7 +9,10 @@ from app.core.database import Base
 
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
-    __table_args__ = (Index("ix_auth_sessions_user_id", "user_id"),)
+    __table_args__ = (
+        Index("ix_auth_sessions_user_id", "user_id"),
+        Index("ix_auth_sessions_expires_at", "expires_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(

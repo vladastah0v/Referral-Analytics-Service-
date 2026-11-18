@@ -92,18 +92,38 @@ async def get_event(
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     if user.role == UserRole.MANAGER:
-        order_id = event.payload.get("external_order_id")
-        visible = await session.scalar(
-            select(
-                exists().where(
-                    Order.source_system == event.source_system,
-                    Order.external_order_id == order_id,
+        if event.event_type in ("lead_created", "lead_qualified"):
+            visible = event.processing_status == "processed" and await session.scalar(
+                select(
                     exists().where(
-                        Lead.user_id == Order.user_id, Lead.assigned_manager_id == user.id
-                    ),
+                        Lead.id == UUID(event.payload["lead_id"]),
+                        Lead.assigned_manager_id == user.id,
+                    )
                 )
             )
-        )
+        elif event.event_type == "user_registered":
+            visible = event.processing_status == "processed" and await session.scalar(
+                select(
+                    exists().where(
+                        Lead.user_id == event.user_id, Lead.assigned_manager_id == user.id
+                    )
+                )
+            )
+        elif event.event_type == "referral_clicked":
+            visible = False
+        else:
+            order_id = event.payload.get("external_order_id")
+            visible = await session.scalar(
+                select(
+                    exists().where(
+                        Order.source_system == event.source_system,
+                        Order.external_order_id == order_id,
+                        exists().where(
+                            Lead.user_id == Order.user_id, Lead.assigned_manager_id == user.id
+                        ),
+                    )
+                )
+            )
         if not visible:
             raise HTTPException(status_code=404, detail="Event not found")
     outbox = await session.scalar(select(EventOutbox).where(EventOutbox.event_id == event.id))

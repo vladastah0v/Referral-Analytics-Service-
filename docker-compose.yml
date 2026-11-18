@@ -12,6 +12,7 @@ x-app: &app
     REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     ANALYTICS_CACHE_TTL_SECONDS: ${ANALYTICS_CACHE_TTL_SECONDS:-60}
     ANALYTICS_CACHE_NAMESPACE: ${ANALYTICS_CACHE_NAMESPACE:-referral-analytics}
+    CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
     CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
   depends_on:
     postgres:
