@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -184,10 +184,29 @@ class ReferralClickRead(BaseModel):
     campaign: str | None
 
 
-class ReferralStatistics(BaseModel):
-    date_from: datetime | None
-    date_to: datetime | None
+class ReferralMetrics(BaseModel):
     total_clicks: int
     unique_visitors: int
     referred_registrations: int
     conversion_rate: Decimal | None
+
+    @classmethod
+    def from_counts(cls, clicks: int, visitors: int, registrations: int) -> "ReferralMetrics":
+        rate = (
+            (Decimal(registrations) * 100 / visitors).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            if visitors
+            else None
+        )
+        return cls(
+            total_clicks=clicks,
+            unique_visitors=visitors,
+            referred_registrations=registrations,
+            conversion_rate=rate,
+        )
+
+
+class ReferralStatistics(ReferralMetrics):
+    date_from: datetime | None
+    date_to: datetime | None

@@ -98,6 +98,9 @@ class ReferralClick(Base):
         UniqueConstraint("request_id", name="uq_referral_clicks_request_id"),
         UniqueConstraint("id", "referral_code_id", name="uq_referral_clicks_id_code"),
         Index("ix_referral_clicks_visitor_clicked_id", "visitor_id", "clicked_at", "id"),
+        Index("ix_referral_clicks_clicked_at", "clicked_at"),
+        Index("ix_referral_clicks_campaign_time", "campaign", "clicked_at"),
+        Index("ix_referral_clicks_source_time", "source", "clicked_at"),
         Index("ix_referral_clicks_code_clicked_at", "referral_code_id", "clicked_at"),
     )
 
@@ -135,6 +138,7 @@ class ReferralAttribution(Base):
             name="fk_referral_attributions_click_code",
             ondelete="RESTRICT",
         ),
+        Index("ix_referral_attributions_attributed_at", "attributed_at"),
         Index("ix_referral_attributions_code_id", "referral_code_id"),
         Index("ix_referral_attributions_click_id", "click_id"),
         Index("ix_referral_attributions_referrer_attributed", "referrer_id", "attributed_at"),

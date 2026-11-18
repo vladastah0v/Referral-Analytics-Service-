@@ -1,6 +1,5 @@
 import secrets
 from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -23,6 +22,7 @@ from app.modules.referrals.schemas import (
     ReferralClickCreate,
     ReferralCodeCreate,
     ReferralCodeUpdate,
+    ReferralMetrics,
     ReferralProgramCreate,
     ReferralProgramUpdate,
     ReferralStatistics,
@@ -217,18 +217,5 @@ class ReferralStatisticsService:
         if date_from is not None and date_to is not None and date_from >= date_to:
             raise InvalidStatisticsRangeError
         clicks, visitors, registrations = await self.statistics.totals(owner_id, date_from, date_to)
-        conversion = (
-            (Decimal(registrations) * Decimal(100) / Decimal(visitors)).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-            if visitors
-            else None
-        )
-        return ReferralStatistics(
-            date_from=date_from,
-            date_to=date_to,
-            total_clicks=clicks,
-            unique_visitors=visitors,
-            referred_registrations=registrations,
-            conversion_rate=conversion,
-        )
+        metrics = ReferralMetrics.from_counts(clicks, visitors, registrations)
+        return ReferralStatistics(date_from=date_from, date_to=date_to, **metrics.model_dump())
