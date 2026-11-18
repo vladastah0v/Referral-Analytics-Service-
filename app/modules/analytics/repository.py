@@ -27,6 +27,90 @@ class RevenueRepository:
         referral_code: str | None = None,
     ):
         event = OrderFinancialEvent
+        statement = self._revenue_statement(
+            user, date_from, date_to, currency, campaign, source, referral_code
+        )
+        if group_by:
+            period = func.date_trunc(
+                group_by, event.occurred_at, "UTC", type_=DateTime(timezone=True)
+            )
+            statement = (
+                statement.add_columns(period.label("period_start"))
+                .group_by(
+                    func.grouping_sets(tuple_(event.currency, period), tuple_(event.currency))
+                )
+                .order_by(period, event.currency)
+            )
+        else:
+            statement = statement.group_by(event.currency).order_by(event.currency)
+        return (await self.session.execute(statement)).all()
+
+    async def top_referrers(
+        self,
+        user: User,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        currency: str | None,
+        group_by: Grouping | None,
+        campaign: str | None,
+        source: str | None,
+        referral_code: str | None,
+        limit: int,
+    ):
+        event = OrderFinancialEvent
+        statement = self._revenue_statement(
+            user, date_from, date_to, currency, campaign, source, referral_code, by_referrer=True
+        )
+        keys = (event.currency, ReferralAttribution.referrer_id)
+        if group_by:
+            period = func.date_trunc(
+                group_by, event.occurred_at, "UTC", type_=DateTime(timezone=True)
+            )
+            statement = statement.add_columns(period.label("period_start")).group_by(
+                func.grouping_sets(tuple_(*keys, period), tuple_(*keys))
+            )
+        else:
+            statement = statement.group_by(*keys)
+        totals = statement.subquery()
+        partitions = [totals.c.currency]
+        if group_by:
+            partitions.append(totals.c.period_start)
+        position = func.row_number().over(
+            partition_by=partitions, order_by=(totals.c.net_revenue.desc(), totals.c.referrer_id)
+        )
+        ranked = select(
+            *partitions,
+            totals.c.referrer_id,
+            totals.c.paid_orders,
+            totals.c.net_revenue,
+            position.label("position"),
+        ).subquery()
+        sort = [ranked.c.currency, ranked.c.position]
+        if group_by:
+            sort.insert(0, ranked.c.period_start.nulls_first())
+        return (
+            (
+                await self.session.execute(
+                    select(ranked).where(ranked.c.position <= limit).order_by(*sort)
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    @staticmethod
+    def _revenue_statement(
+        user: User,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        currency: str | None,
+        campaign: str | None,
+        source: str | None,
+        referral_code: str | None,
+        *,
+        by_referrer: bool = False,
+    ):
+        event = OrderFinancialEvent
         credit = case(
             (
                 event.event_type.in_(
@@ -66,7 +150,7 @@ class RevenueRepository:
             statement = statement.where(event.occurred_at < date_to)
         if currency is not None:
             statement = statement.where(event.currency == currency)
-        if campaign is not None or source is not None or referral_code is not None:
+        if by_referrer or campaign is not None or source is not None or referral_code is not None:
             statement = statement.join(
                 ReferralAttribution, ReferralAttribution.id == Order.referral_attribution_id
             )
@@ -82,17 +166,6 @@ class RevenueRepository:
             statement = statement.join(
                 ReferralCode, ReferralCode.id == ReferralAttribution.referral_code_id
             ).where(ReferralCode.code == referral_code)
-        if group_by:
-            period = func.date_trunc(
-                group_by, event.occurred_at, "UTC", type_=DateTime(timezone=True)
-            )
-            statement = (
-                statement.add_columns(period.label("period_start"))
-                .group_by(
-                    func.grouping_sets(tuple_(event.currency, period), tuple_(event.currency))
-                )
-                .order_by(period, event.currency)
-            )
-        else:
-            statement = statement.group_by(event.currency).order_by(event.currency)
-        return (await self.session.execute(statement)).all()
+        if by_referrer:
+            statement = statement.add_columns(ReferralAttribution.referrer_id)
+        return statement

@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, field_serializer
 
@@ -31,3 +32,29 @@ class RevenueReport(BaseModel):
     date_from: datetime | None
     date_to: datetime | None
     items: list[CurrencyRevenue]
+
+
+class ReferrerRevenue(BaseModel):
+    position: int
+    referrer_id: UUID
+    currency: str
+    paid_orders: int
+    net_revenue: Decimal
+
+    @field_serializer("net_revenue")
+    def serialize_net(self, value: Decimal) -> str:
+        return format(value, ".2f")
+
+
+class ReferrerRankingPeriod(BaseModel):
+    period_start: datetime
+    items: list[ReferrerRevenue]
+
+
+class ReferrerRanking(BaseModel):
+    date_from: datetime | None
+    date_to: datetime | None
+    group_by: Grouping | None
+    limit: int
+    items: list[ReferrerRevenue]
+    periods: list[ReferrerRankingPeriod]

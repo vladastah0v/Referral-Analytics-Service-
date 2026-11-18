@@ -1,3 +1,4 @@
+from datetime import UTC
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -7,7 +8,14 @@ from app.core.dependencies import CurrentUser, SessionDependency
 from app.modules.analytics.funnel import FunnelReport, funnel_report
 from app.modules.analytics.overview import OverviewReport, overview_report
 from app.modules.analytics.referrals import ReferralReport, referral_report
-from app.modules.analytics.schemas import Grouping, RevenueReport
+from app.modules.analytics.repository import RevenueRepository
+from app.modules.analytics.schemas import (
+    Grouping,
+    ReferrerRanking,
+    ReferrerRankingPeriod,
+    ReferrerRevenue,
+    RevenueReport,
+)
 from app.modules.analytics.service import InvalidRevenueRangeError, RevenueService
 from app.modules.users.models import UserRole
 
@@ -103,4 +111,50 @@ async def overview(
     response.headers["Cache-Control"] = "private, no-store"
     return await overview_report(
         session, user, date_from, date_to, group_by, campaign, source, referral_code
+    )
+
+
+@router.get("/top-referrers", response_model=ReferrerRanking)
+async def top_referrers(
+    user: CurrentUser,
+    session: SessionDependency,
+    response: Response,
+    date_from: AwareDatetime | None = None,
+    date_to: AwareDatetime | None = None,
+    group_by: Grouping | None = None,
+    currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+) -> ReferrerRanking:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    start = date_from.astimezone(UTC) if date_from else None
+    end = date_to.astimezone(UTC) if date_to else None
+    if start and end and start >= end:
+        raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
+    rows = await RevenueRepository(session).top_referrers(
+        user, start, end, currency, group_by, campaign, source, referral_code, limit
+    )
+    items = []
+    periods = {}
+    for row in rows:
+        item = ReferrerRevenue.model_validate(row)
+        period = row.get("period_start")
+        if period is None:
+            items.append(item)
+        else:
+            periods.setdefault(period.astimezone(UTC), []).append(item)
+    response.headers["Cache-Control"] = "private, no-store"
+    return ReferrerRanking(
+        date_from=start,
+        date_to=end,
+        group_by=group_by,
+        limit=limit,
+        items=items,
+        periods=[
+            ReferrerRankingPeriod(period_start=period, items=entries)
+            for period, entries in periods.items()
+        ],
     )
