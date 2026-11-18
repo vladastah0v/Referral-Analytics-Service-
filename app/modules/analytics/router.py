@@ -1,10 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import AwareDatetime
 
 from app.core.dependencies import CurrentUser, SessionDependency
 from app.modules.analytics.funnel import FunnelReport, funnel_report
+from app.modules.analytics.overview import OverviewReport, overview_report
 from app.modules.analytics.referrals import ReferralReport, referral_report
 from app.modules.analytics.schemas import Grouping, RevenueReport
 from app.modules.analytics.service import InvalidRevenueRangeError, RevenueService
@@ -75,4 +76,31 @@ async def funnel(
     response.headers["Cache-Control"] = "private, no-store"
     return await funnel_report(
         session, user, date_from, date_to, group_by, source, campaign, referral_code
+    )
+
+
+async def overview_snapshot(session: SessionDependency) -> None:
+    # Start the snapshot before authentication uses this request's shared session.
+    await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+
+
+@router.get("/overview", response_model=OverviewReport, dependencies=[Depends(overview_snapshot)])
+async def overview(
+    user: CurrentUser,
+    session: SessionDependency,
+    response: Response,
+    date_from: AwareDatetime | None = None,
+    date_to: AwareDatetime | None = None,
+    group_by: Grouping | None = None,
+    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+) -> OverviewReport:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if date_from is not None and date_to is not None and date_from >= date_to:
+        raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
+    response.headers["Cache-Control"] = "private, no-store"
+    return await overview_report(
+        session, user, date_from, date_to, group_by, campaign, source, referral_code
     )
