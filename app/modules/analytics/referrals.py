@@ -1,13 +1,11 @@
 from datetime import UTC, datetime
-from typing import Literal
 
 from sqlalchemy import DateTime, Uuid, cast, func, literal, select, tuple_, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.analytics.schemas import Grouping
 from app.modules.referrals.models import ReferralAttribution, ReferralClick, ReferralCode
 from app.modules.referrals.schemas import ReferralMetrics
-
-Grouping = Literal["day", "week", "month"]
 
 
 class ReferralPeriod(ReferralMetrics):

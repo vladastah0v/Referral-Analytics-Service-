@@ -8,6 +8,14 @@ from app.modules.leads.models import Lead, LeadStatus, LeadStatusHistory
 from app.modules.users.models import User, UserRole
 
 
+def lead_visibility(user: User):
+    if user.role == UserRole.ADMIN:
+        return true()
+    if user.role == UserRole.MANAGER:
+        return Lead.assigned_manager_id == user.id
+    return Lead.user_id == user.id
+
+
 class LeadRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -51,21 +59,13 @@ class LeadRepository:
             )
         )
 
-    @staticmethod
-    def _visibility(user):
-        if user.role == UserRole.ADMIN:
-            return true()
-        if user.role == UserRole.MANAGER:
-            return Lead.assigned_manager_id == user.id
-        return Lead.user_id == user.id
-
     async def get_visible(self, lead_id, user):
         return await self.session.scalar(
-            select(Lead).where(Lead.id == lead_id, self._visibility(user))
+            select(Lead).where(Lead.id == lead_id, lead_visibility(user))
         )
 
     async def list_visible(self, user, status, manager_id, date_from, date_to, sort, limit, offset):
-        statement = select(Lead).where(self._visibility(user))
+        statement = select(Lead).where(lead_visibility(user))
         if status is not None:
             statement = statement.where(Lead.status == status)
         if manager_id is not None:
@@ -89,7 +89,7 @@ class LeadRepository:
         if user.role == UserRole.CUSTOMER:
             return None
         return await self.session.scalar(
-            select(Lead).where(Lead.id == lead_id, self._visibility(user)).with_for_update()
+            select(Lead).where(Lead.id == lead_id, lead_visibility(user)).with_for_update()
         )
 
     def add_status_history(self, lead_id, user_id, previous, new, changed_at):
@@ -116,7 +116,7 @@ class LeadRepository:
     async def lock_visible_for_history(self, lead_id: UUID, user: User) -> UUID | None:
         statement = (
             select(Lead.id)
-            .where(Lead.id == lead_id, self._visibility(user))
+            .where(Lead.id == lead_id, lead_visibility(user))
             .with_for_update(read=True)
         )
         return await self.session.scalar(statement)

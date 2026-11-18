@@ -1,7 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, field_serializer
+
+Grouping = Literal["day", "week", "month"]
 
 
 class CurrencyRevenue(BaseModel):
