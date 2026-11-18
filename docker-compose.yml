@@ -10,6 +10,8 @@ x-app: &app
     JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
     DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://referral:local-development-only@postgres:5432/referral_analytics}
     REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    ANALYTICS_CACHE_TTL_SECONDS: ${ANALYTICS_CACHE_TTL_SECONDS:-60}
+    ANALYTICS_CACHE_NAMESPACE: ${ANALYTICS_CACHE_NAMESPACE:-referral-analytics}
     CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
   depends_on:
     postgres:

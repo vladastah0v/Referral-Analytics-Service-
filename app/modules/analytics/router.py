@@ -4,7 +4,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import AwareDatetime
 
-from app.core.dependencies import CurrentUser, SessionDependency
+from app.core.dependencies import SessionDependency, require_roles
+from app.modules.analytics.cache import CacheClient, cached_report, report_snapshot
+from app.modules.analytics.conversion import ConversionReport, conversion_report
 from app.modules.analytics.funnel import FunnelReport, funnel_report
 from app.modules.analytics.overview import OverviewReport, overview_report
 from app.modules.analytics.referrals import ReferralReport, referral_report
@@ -17,35 +19,51 @@ from app.modules.analytics.schemas import (
     RevenueReport,
 )
 from app.modules.analytics.service import InvalidRevenueRangeError, RevenueService
-from app.modules.users.models import UserRole
+from app.modules.users.models import User, UserRole
 
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+router = APIRouter(prefix="/analytics", tags=["analytics"], dependencies=[Depends(report_snapshot)])
+Admin = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
+Staff = Annotated[User, Depends(require_roles(UserRole.MANAGER, UserRole.ADMIN))]
 
 
 @router.get("/revenue", response_model=RevenueReport)
+@cached_report(RevenueReport)
 async def revenue(
-    user: CurrentUser,
+    user: Staff,
+    cache: CacheClient,
     session: SessionDependency,
     response: Response,
     date_from: AwareDatetime | None = None,
     date_to: AwareDatetime | None = None,
     currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+    group_by: Grouping | None = None,
+    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> RevenueReport:
-    if user.role not in (UserRole.MANAGER, UserRole.ADMIN):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     try:
-        report = await RevenueService(session).report(user, date_from, date_to, currency)
+        report = await RevenueService(session).report(
+            user,
+            date_from,
+            date_to,
+            currency,
+            group_by=group_by,
+            campaign=campaign,
+            source=source,
+            referral_code=referral_code,
+        )
     except InvalidRevenueRangeError as exc:
         raise HTTPException(
             status_code=422, detail="date_from must be earlier than date_to"
         ) from exc
-    response.headers["Cache-Control"] = "private, no-store"
     return report
 
 
 @router.get("/referrals", response_model=ReferralReport)
+@cached_report(ReferralReport)
 async def referrals(
-    user: CurrentUser,
+    user: Admin,
+    cache: CacheClient,
     session: SessionDependency,
     response: Response,
     date_from: AwareDatetime | None = None,
@@ -55,19 +73,18 @@ async def referrals(
     source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
     referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> ReferralReport:
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
-    response.headers["Cache-Control"] = "private, no-store"
     return await referral_report(
         session, date_from, date_to, group_by, campaign, source, referral_code
     )
 
 
 @router.get("/funnel", response_model=FunnelReport)
+@cached_report(FunnelReport)
 async def funnel(
-    user: CurrentUser,
+    user: Staff,
+    cache: CacheClient,
     session: SessionDependency,
     response: Response,
     date_from: AwareDatetime | None = None,
@@ -77,24 +94,18 @@ async def funnel(
     campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
     referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> FunnelReport:
-    if user.role not in (UserRole.MANAGER, UserRole.ADMIN):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
-    response.headers["Cache-Control"] = "private, no-store"
     return await funnel_report(
         session, user, date_from, date_to, group_by, source, campaign, referral_code
     )
 
 
-async def overview_snapshot(session: SessionDependency) -> None:
-    # Start the snapshot before authentication uses this request's shared session.
-    await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-
-
-@router.get("/overview", response_model=OverviewReport, dependencies=[Depends(overview_snapshot)])
+@router.get("/overview", response_model=OverviewReport)
+@cached_report(OverviewReport)
 async def overview(
-    user: CurrentUser,
+    user: Admin,
+    cache: CacheClient,
     session: SessionDependency,
     response: Response,
     date_from: AwareDatetime | None = None,
@@ -104,19 +115,18 @@ async def overview(
     source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
     referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> OverviewReport:
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
-    response.headers["Cache-Control"] = "private, no-store"
     return await overview_report(
         session, user, date_from, date_to, group_by, campaign, source, referral_code
     )
 
 
 @router.get("/top-referrers", response_model=ReferrerRanking)
+@cached_report(ReferrerRanking)
 async def top_referrers(
-    user: CurrentUser,
+    user: Admin,
+    cache: CacheClient,
     session: SessionDependency,
     response: Response,
     date_from: AwareDatetime | None = None,
@@ -128,8 +138,6 @@ async def top_referrers(
     referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 10,
 ) -> ReferrerRanking:
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     start = date_from.astimezone(UTC) if date_from else None
     end = date_to.astimezone(UTC) if date_to else None
     if start and end and start >= end:
@@ -146,7 +154,6 @@ async def top_referrers(
             items.append(item)
         else:
             periods.setdefault(period.astimezone(UTC), []).append(item)
-    response.headers["Cache-Control"] = "private, no-store"
     return ReferrerRanking(
         date_from=start,
         date_to=end,
@@ -157,4 +164,46 @@ async def top_referrers(
             ReferrerRankingPeriod(period_start=period, items=entries)
             for period, entries in periods.items()
         ],
+    )
+
+
+@router.get("/conversion", response_model=ConversionReport)
+@cached_report(ConversionReport)
+async def conversion(
+    user: Admin,
+    cache: CacheClient,
+    session: SessionDependency,
+    response: Response,
+    date_from: AwareDatetime,
+    date_to: AwareDatetime,
+    previous_from: AwareDatetime | None = None,
+    previous_to: AwareDatetime | None = None,
+    group_by: Grouping | None = None,
+    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+) -> ConversionReport:
+    start, end = date_from.astimezone(UTC), date_to.astimezone(UTC)
+    if start >= end:
+        raise HTTPException(422, "date_from must be earlier than date_to")
+    if (previous_from is None) != (previous_to is None):
+        raise HTTPException(422, "Provide both previous period boundaries")
+    if previous_from is None:
+        try:
+            previous_from, previous_to = start - (end - start), start
+        except OverflowError as exc:
+            raise HTTPException(422, "Previous period outside supported dates") from exc
+    if not previous_from < previous_to <= start:
+        raise HTTPException(422, "Previous period must end before or at date_from")
+    return await conversion_report(
+        session,
+        user,
+        start,
+        end,
+        previous_from,
+        previous_to,
+        group_by,
+        campaign,
+        source,
+        referral_code,
     )

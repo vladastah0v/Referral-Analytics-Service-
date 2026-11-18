@@ -16,6 +16,10 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://referral:local-development-only@localhost:5432/referral_analytics"
     )
     redis_url: str = "redis://localhost:6379/0"
+    analytics_cache_ttl_seconds: int = Field(default=60, ge=0, le=3600)
+    analytics_cache_namespace: str = Field(
+        default="referral-analytics", min_length=1, max_length=128
+    )
     celery_broker_url: str = "redis://localhost:6379/1"
     jwt_secret: SecretStr = SecretStr(DEVELOPMENT_JWT_SECRET)
     jwt_access_ttl_minutes: int = Field(default=15, ge=1, le=1440)

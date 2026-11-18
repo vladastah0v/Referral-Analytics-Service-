@@ -130,6 +130,7 @@ class ReferralReward(Base):
 class ReferralRewardHistory(Base):
     __tablename__ = "referral_reward_history"
     __table_args__ = (
+        Index("ix_reward_history_created_at", "created_at"),
         UniqueConstraint("reward_id", "revision", name="uq_referral_reward_history_revision"),
         UniqueConstraint(
             "reward_id", "financial_event_id", name="uq_reward_history_financial_event"

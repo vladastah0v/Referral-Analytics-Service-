@@ -10,6 +10,7 @@ import pytest_asyncio
 from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from httpx import ASGITransport, AsyncClient
+from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -33,6 +34,7 @@ from app.main import (
     permission_error_handler,
     validation_error_handler,
 )
+from app.modules.analytics.cache import get_cache_client
 from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
 from app.modules.leads.router import router as leads_router
@@ -120,6 +122,15 @@ def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
             yield session
 
     api.dependency_overrides[get_session] = get_test_session
+
+    async def test_cache():
+        if url := os.environ.get("TEST_REDIS_URL"):
+            async with Redis.from_url(url, decode_responses=True) as store:
+                yield store
+        else:
+            yield None
+
+    api.dependency_overrides[get_cache_client] = test_cache
 
     @api.get("/test/admin")
     async def admin_endpoint(

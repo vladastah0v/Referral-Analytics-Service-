@@ -28,7 +28,14 @@ class CurrencyRevenue(BaseModel):
         return format(value.quantize(Decimal("0.01")), ".2f")
 
 
+class RevenuePeriod(BaseModel):
+    period_start: datetime
+    items: list[CurrencyRevenue]
+
+
 class RevenueReport(BaseModel):
+    group_by: Grouping | None
+    periods: list[RevenuePeriod]
     date_from: datetime | None
     date_to: datetime | None
     items: list[CurrencyRevenue]

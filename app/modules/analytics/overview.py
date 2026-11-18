@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.analytics.funnel import FunnelMetrics, funnel_report
 from app.modules.analytics.referrals import referral_report
 from app.modules.analytics.repository import RevenueRepository
+from app.modules.analytics.reward_totals import CurrencyRewards, reward_totals
 from app.modules.analytics.schemas import CurrencyRevenue, Grouping
 from app.modules.referrals.schemas import ReferralMetrics
 from app.modules.users.models import User
@@ -21,6 +22,7 @@ class OverviewMetrics(BaseModel):
     funnel: FunnelMetrics = Field(
         default_factory=lambda: FunnelMetrics(total_leads=0, qualified_leads=0, converted_leads=0)
     )
+    rewards: list[CurrencyRewards] = Field(default_factory=list)
     revenue: list[OverviewRevenue] = Field(default_factory=list)
 
 
@@ -79,7 +81,17 @@ async def overview_report(
             bucket(row.period_start.astimezone(UTC)).revenue.append(item)
         else:
             totals.append(item)
+    rewards = []
+    for row in await reward_totals(
+        session, referrals.date_from, referrals.date_to, group_by, campaign, source, referral_code
+    ):
+        amount = CurrencyRewards.model_validate(row)
+        if row.get("period_start") is None:
+            rewards.append(amount)
+        else:
+            bucket(row["period_start"].astimezone(UTC)).rewards.append(amount)
     return OverviewReport(
+        rewards=rewards,
         date_from=referrals.date_from,
         date_to=referrals.date_to,
         group_by=group_by,
