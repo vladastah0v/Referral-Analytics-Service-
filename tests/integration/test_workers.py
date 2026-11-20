@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 
-from app.modules.analytics.models import DailySnapshot, SnapshotRequest
+from app.modules.analytics.models import DailySnapshot, SnapshotFailure, SnapshotRequest
 from app.modules.auth.models import AuthSession
 from app.modules.leads.models import Lead
 from app.modules.tracking.models import Event, EventOutbox
@@ -107,6 +107,38 @@ async def test_missing_fact_and_poison_event_do_not_block_queue(client, session_
         assert row.last_error == (await session.get(Event, eid)).error_code == "processing_error"
 
 
+async def test_notification_processed_after_registration_arrives(client, session_maker):
+    key = await service_key(session_maker)
+    uid = uuid4()
+    registered_at = datetime.now(UTC)
+    message = event("user_registered", {"user_id": str(uid)}, registered_at)
+    receipt = await client.post(EVENTS, headers=key, json=message)
+    assert receipt.status_code == 202
+    eid = UUID(receipt.json()["id"])
+    assert await drain_outbox(session_maker) == 1
+    async with session_maker() as session:
+        item = await session.scalar(select(EventOutbox).where(EventOutbox.event_id == eid))
+        assert item.state == "pending" and item.last_error == "fact_missing"
+        session.add(
+            User(
+                id=uid,
+                created_at=registered_at,
+                email="registered@example.com",
+                full_name="Registered User",
+                role=UserRole.CUSTOMER,
+                password_hash="unused",
+            )
+        )
+        item.available_at = registered_at
+        await session.commit()
+    assert await drain_outbox(session_maker) == 1
+    async with session_maker() as session:
+        saved = await session.get(Event, eid)
+        assert saved.user_id == uid and saved.processing_status == "processed"
+        item = await session.scalar(select(EventOutbox).where(EventOutbox.event_id == eid))
+        assert item.state == "done" and item.attempts == 2 and item.last_error is None
+
+
 async def test_daily_refresh_replay_and_write_during_snapshot(client, session_maker, monkeypatch):
     await seed_overview(client, session_maker)
     day = date(2026, 1, 1)
@@ -162,3 +194,23 @@ async def test_cleanup_preserves_active_session(client, session_maker):
     assert await maintenance.cleanup_sessions(session_maker) == 1
     assert await maintenance.cleanup_sessions(session_maker) == 0
     assert await own_user_id(client, headers) == uid
+
+
+async def test_failed_snapshot_can_be_rebuilt_without_blocking_other_days(
+    session_maker, monkeypatch
+):
+    failed_day = date(2026, 1, 1)
+    healthy_day = date(2026, 1, 2)
+    async with session_maker() as session:
+        session.add_all([SnapshotRequest(day=failed_day), SnapshotRequest(day=healthy_day)])
+        await session.commit()
+    await maintenance.mark_failed(session_maker, failed_day, "failed-task")
+    published = []
+    monkeypatch.setattr(maintenance.refresh_day_task, "delay", published.append)
+    assert await maintenance.dispatch_pending(session_maker) == 1
+    assert published == [healthy_day.isoformat()]
+    assert await maintenance.refresh_day(session_maker, failed_day.isoformat())
+    async with session_maker() as session:
+        assert await session.get(SnapshotFailure, failed_day) is None
+        assert await session.get(DailySnapshot, failed_day) is not None
+        assert (await session.scalars(select(SnapshotRequest.day))).all() == [healthy_day]
