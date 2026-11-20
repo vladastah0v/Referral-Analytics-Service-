@@ -25,7 +25,8 @@ class OrderEventProcessor:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def process(self, event: Event) -> None:
+    async def process(self, event: Event) -> bool:
+        """Return whether this event repeats an applied financial operation."""
         payload = event.payload
         external_id = payload["external_order_id"]
         digest = hashlib.blake2s(
@@ -42,7 +43,7 @@ class OrderEventProcessor:
         )
         if event.event_type == "order_created":
             await self._create(event, order)
-            return
+            return False
         if order is None:
             raise DeferredOrderEvent("order_missing")
         event.user_id = order.user_id
@@ -52,13 +53,13 @@ class OrderEventProcessor:
             raise RejectedOrderEvent("event_before_order")
         if event.event_type == "order_cancelled":
             if order.status == OrderStatus.CANCELLED:
-                return
+                return False
             if order.status != OrderStatus.CREATED:
                 raise RejectedOrderEvent("cancel_after_payment")
             order.status = OrderStatus.CANCELLED
             order.cancelled_at = event.occurred_at
-            return
-        await self._financial(event, order)
+            return False
+        return await self._financial(event, order)
 
     async def _create(self, event: Event, order: Order | None) -> None:
         payload = event.payload
@@ -101,7 +102,7 @@ class OrderEventProcessor:
         event.user_id = user_id
         await self.session.flush()
 
-    async def _financial(self, event: Event, order: Order) -> None:
+    async def _financial(self, event: Event, order: Order) -> bool:
         payload = event.payload
         if event.event_type == "order_paid":
             kind = FinancialEventType.PAYMENT
@@ -128,7 +129,7 @@ class OrderEventProcessor:
                 or existing.occurred_at != event.occurred_at
             ):
                 raise RejectedOrderEvent("operation_identity_conflict")
-            return
+            return True
         if order.currency != payload["currency"]:
             raise RejectedOrderEvent("currency_mismatch")
         if kind == FinancialEventType.PAYMENT:
@@ -159,7 +160,7 @@ class OrderEventProcessor:
             order.status = OrderStatus.PAID
             order.paid_at = event.occurred_at
             await self._reward(order, operation)
-            return
+            return False
 
         # Re-evaluate the complete chronological balance in PostgreSQL, including late events.
         financial = OrderFinancialEvent
@@ -211,6 +212,7 @@ class OrderEventProcessor:
             order.status = OrderStatus.PAID
 
         await self._reward(order, operation)
+        return False
 
     async def _reward(self, order: Order, operation: OrderFinancialEvent) -> None:
         try:

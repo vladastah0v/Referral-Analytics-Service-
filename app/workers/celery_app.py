@@ -2,6 +2,7 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import get_settings
+from app.workers.metrics import instrument_worker
 
 celery_app = Celery(
     "referral_analytics",
@@ -9,6 +10,7 @@ celery_app = Celery(
     backend=get_settings().celery_result_backend,
     include=["app.workers.tasks.outbox", "app.workers.tasks.maintenance"],
 )
+instrument_worker(celery_app)
 celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,

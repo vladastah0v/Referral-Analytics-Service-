@@ -3,7 +3,7 @@ x-app: &app
   env_file:
     - path: .env
       required: false
-  environment:
+  environment: &app-env
     APP_ENV: ${APP_ENV:-development}
     JWT_SECRET: ${JWT_SECRET:-local-development-only-change-this-jwt-secret-before-deployment}
     JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-15}
@@ -29,7 +29,18 @@ services:
       - "127.0.0.1:8000:8000"
   celery-worker:
     <<: *app
-    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO"]
+    environment:
+      <<: *app-env
+      CELERY_METRICS_HOST: 0.0.0.0
+      CELERY_METRICS_PORT: "9101"
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    command:
+      - sh
+      - -ec
+      - |
+        export PROMETHEUS_MULTIPROC_DIR="$$(mktemp -d /tmp/referral-prometheus.XXXXXX)"
+        exec celery -A app.workers.celery_app:celery_app worker --loglevel=INFO
   celery-beat:
     <<: *app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]

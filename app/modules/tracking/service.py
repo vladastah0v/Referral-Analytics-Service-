@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.tracking.metrics import DUPLICATE_EVENTS
 from app.modules.tracking.models import Event, EventOutbox
 from app.modules.tracking.schemas import EventCreate
 
@@ -51,6 +52,7 @@ class EventIngestionService:
                 if event.payload_hash != digest:
                     raise EventConflictError
                 await self.session.commit()
+                DUPLICATE_EVENTS.labels("ingestion").inc()
                 return event, False
             self.session.add(EventOutbox(event_id=event.id))
             await self.session.commit()

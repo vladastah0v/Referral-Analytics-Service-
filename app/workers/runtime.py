@@ -5,12 +5,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.metrics import instrument_database
 
 logger = logging.getLogger(__name__)
 
 
 async def with_database(operation, *args):
     engine = create_async_engine(get_settings().database_url, poolclass=NullPool)
+    instrument_database(engine.sync_engine)
     try:
         return await operation(async_sessionmaker(engine, expire_on_commit=False), *args)
     finally:

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import get_args
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -6,9 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.orders.processor import DeferredOrderEvent, OrderEventProcessor, RejectedOrderEvent
 from app.modules.tracking.facts import confirm_fact
+from app.modules.tracking.metrics import DUPLICATE_EVENTS, EVENTS_PROCESSED
 from app.modules.tracking.models import Event, EventOutbox
+from app.modules.tracking.schemas import EventType
 
 MAX_ATTEMPTS = 10
+EVENT_TYPES = frozenset(get_args(EventType))
 
 
 async def process_next(session: AsyncSession, *, retry_unexpected: bool = False) -> bool:
@@ -25,10 +29,12 @@ async def process_next(session: AsyncSession, *, retry_unexpected: bool = False)
     event = await session.get(Event, row.event_id)
     if event is None:
         raise RuntimeError("Outbox event missing")
+    event_type = event.event_type
+    duplicate = False
     try:
         async with session.begin_nested():
-            if event.event_type.startswith("order_"):
-                await OrderEventProcessor(session).process(event)
+            if event_type.startswith("order_"):
+                duplicate = await OrderEventProcessor(session).process(event)
             else:
                 await confirm_fact(session, event)
     except RejectedOrderEvent as exc:
@@ -59,7 +65,12 @@ async def process_next(session: AsyncSession, *, retry_unexpected: bool = False)
         row.last_error = None
         event.processing_status = "processed"
         event.error_code = None
+    outcome = {"done": "processed", "failed": "rejected"}.get(row.state)
     await session.commit()
+    if outcome:
+        EVENTS_PROCESSED.labels(event_type if event_type in EVENT_TYPES else "other", outcome).inc()
+    if outcome == "processed" and duplicate:
+        DUPLICATE_EVENTS.labels("financial_operation").inc()
     return True
 
 

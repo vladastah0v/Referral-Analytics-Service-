@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
+from prometheus_client import REGISTRY
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -78,6 +79,8 @@ async def test_integration_auth_batch_idempotency_and_outbox(
     assert (
         await client.post(EVENTS, headers={"X-Integration-Key": "invalid"}, json=payload)
     ).status_code == 401
+    labels = {"stage": "ingestion"}
+    before = REGISTRY.get_sample_value("referral_duplicate_events_total", labels) or 0
     first = await client.post(EVENTS, headers=headers, json=payload)
     assert first.status_code == 202
     replay = await client.post(EVENTS, headers=headers, json=payload)
@@ -91,6 +94,7 @@ async def test_integration_auth_batch_idempotency_and_outbox(
     )
     assert batch.status_code == 207
     assert [item["status_code"] for item in batch.json()["results"]] == [200, 409, 422, 202, 422]
+    assert REGISTRY.get_sample_value("referral_duplicate_events_total", labels) == before + 2
     assert (
         await client.post(EVENTS + "/batch", headers=headers, json={"events": [payload] * 101})
     ).status_code == 422
@@ -628,7 +632,17 @@ async def test_parallel_messages_for_one_payment_do_not_duplicate_ledger(
     ]
     for payment in payments:
         assert (await client.post(EVENTS, headers=headers, json=payment)).status_code == 202
+    duplicate = {"stage": "financial_operation"}
+    processed = {"event_type": "order_paid", "outcome": "processed"}
+    duplicates_before = REGISTRY.get_sample_value("referral_duplicate_events_total", duplicate) or 0
+    processed_before = REGISTRY.get_sample_value("referral_events_processed_total", processed) or 0
     assert all(await asyncio.gather(process_one(session_maker), process_one(session_maker)))
+    assert REGISTRY.get_sample_value("referral_duplicate_events_total", duplicate) == (
+        duplicates_before + 1
+    )
+    assert REGISTRY.get_sample_value("referral_events_processed_total", processed) == (
+        processed_before + 2
+    )
     async with session_maker() as session:
         assert await session.scalar(select(func.count()).select_from(OrderFinancialEvent)) == 1
         assert (

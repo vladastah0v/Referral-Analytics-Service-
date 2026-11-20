@@ -79,6 +79,19 @@ class LeadFact(BaseModel):
     lead_id: UUID
 
 
+EventType = Literal[
+    "order_created",
+    "order_paid",
+    "order_cancelled",
+    "order_refunded",
+    "order_adjusted",
+    "referral_clicked",
+    "user_registered",
+    "lead_created",
+    "lead_qualified",
+]
+
+
 class EventCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     external_event_id: Annotated[
@@ -87,17 +100,8 @@ class EventCreate(BaseModel):
             strip_whitespace=True, min_length=1, max_length=255, pattern=r"^[^\x00-\x1f\x7f]+$"
         ),
     ]
-    event_type: Literal[
-        "order_created",
-        "order_paid",
-        "order_cancelled",
-        "order_refunded",
-        "order_adjusted",
-        "referral_clicked",
-        "user_registered",
-        "lead_created",
-        "lead_qualified",
-    ]
+    event_type: EventType
+
     occurred_at: AwareDatetime
     payload: dict[str, Any]
 
