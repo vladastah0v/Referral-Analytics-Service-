@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +14,7 @@ from app.core.exceptions import (
     EmailAlreadyRegisteredError,
     PermissionDeniedError,
 )
+from app.core.metrics import HTTPMetricsMiddleware
 from app.core.redis import redis_client
 from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Referral Analytics Service", version="0.1.0", lifespan=lifespan)
+app.add_middleware(HTTPMetricsMiddleware)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(orders_router, prefix="/api/v1")
 app.include_router(rewards_router, prefix="/api/v1")
@@ -86,3 +89,11 @@ async def readiness() -> dict[str, str]:
     except (SQLAlchemyError, RedisError, OSError, TimeoutError) as exc:
         raise HTTPException(status_code=503, detail="Dependencies unavailable") from exc
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics() -> Response:
+    return Response(
+        generate_latest(),
+        headers={"Content-Type": CONTENT_TYPE_LATEST, "Cache-Control": "no-store"},
+    )
