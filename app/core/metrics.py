@@ -1,9 +1,12 @@
+import logging
 from time import perf_counter
 
 from prometheus_client import Counter, Histogram
 from sqlalchemy import event
 from sqlalchemy.engine import Engine, ExceptionContext, ExecutionContext
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+http_logger = logging.getLogger("app.http")
 
 HTTP_REQUESTS = Counter(
     "referral_http_requests_total",
@@ -65,7 +68,17 @@ class HTTPMetricsMiddleware:
                 method = scope["method"]
                 if method not in HTTP_METHODS:
                     method = "OTHER"
-                HTTP_DURATION.labels(method, route).observe(perf_counter() - started)
+                elapsed = perf_counter() - started
+                HTTP_DURATION.labels(method, route).observe(elapsed)
+                http_logger.info(
+                    "HTTP request completed",
+                    extra={
+                        "method": method,
+                        "route": route,
+                        "status": status,
+                        "duration_ms": round(elapsed * 1000, 3),
+                    },
+                )
                 HTTP_REQUESTS.labels(method, route, str(status)).inc()
                 if 400 <= status < 600:
                     HTTP_ERRORS.labels(method, route, str(status)).inc()

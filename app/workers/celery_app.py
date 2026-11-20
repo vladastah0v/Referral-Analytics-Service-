@@ -1,8 +1,17 @@
-from celery import Celery
+from logging.config import dictConfig
+
+from celery import Celery, signals
 from celery.schedules import crontab
 
 from app.core.config import get_settings
+from app.core.logging import logging_config
 from app.workers.metrics import instrument_worker
+
+
+@signals.setup_logging.connect
+def configure_celery_logging(loglevel=None, logfile=None, **kwargs):
+    dictConfig(logging_config("celery", loglevel or get_settings().log_level, logfile))
+
 
 celery_app = Celery(
     "referral_analytics",

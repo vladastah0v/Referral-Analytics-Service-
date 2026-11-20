@@ -23,15 +23,17 @@ def run_job(task, operation, *args):
     """Create and dispose the async engine on the same loop in the worker process."""
     try:
         result = asyncio.run(with_database(operation, *args))
-    except Exception:
+    except Exception as exc:
         logger.error(
-            "Background task failed task=%s task_id=%s retry=%s",
-            task.name,
-            task.request.id,
-            task.request.retries,
+            "Background operation failed",
+            extra={
+                "task": task.name,
+                "task_id": task.request.id,
+                "attempt": task.request.retries + 1,
+                "error_type": type(exc).__name__,
+            },
         )
         raise task.retry(
             exc=RuntimeError("Background task failed"), countdown=min(2**task.request.retries, 60)
         ) from None
-    logger.info("Background task completed task=%s task_id=%s", task.name, task.request.id)
     return result

@@ -76,3 +76,39 @@ sum by (task) (increase(referral_celery_task_failures_total[5m]))
 ```promql
 sum by (event_type, outcome) (rate(referral_events_processed_total[5m]))
 ```
+
+## Prometheus и Grafana в Docker Compose
+
+Для нового стенда сначала запустите PostgreSQL и Redis и примените миграции. Затем включите профиль `monitoring`.
+
+```bash
+docker compose up -d postgres redis
+docker compose run --rm --build api alembic upgrade head
+docker compose --profile monitoring up -d --build
+```
+
+Prometheus доступен на `http://127.0.0.1:9090`, Grafana — на `http://127.0.0.1:3000`. При первом запуске Grafana создаёт администратора из `GRAFANA_ADMIN_USER` и `GRAFANA_ADMIN_PASSWORD`. Значения из `.env.example` предназначены для локального стенда. Задайте свой пароль в `.env` перед первым запуском. Для ранее созданного администратора пароль меняется средствами Grafana.
+
+Prometheus опрашивает API и воркеры каждые 15 секунд. DNS-обнаружение регистрирует каждый экземпляр сервиса, адрес которого возвращает Docker DNS. Оба задания должны показывать `UP` в разделе **Status → Target health**.
+
+Панель **Referral Analytics Service** и источник **Prometheus** загружаются при запуске Grafana. Панель показывает состояние целей, трафик и ошибки HTTP, p95 для HTTP, SQL и Celery, окончательные сбои задач, результаты outbox и повторные доставки. Ряды появляются после выполнения соответствующих операций и следующего сбора метрик. Графики на основе `rate()` и `increase()` требуют нескольких измерений.
+
+Данные хранятся в томах Compose `prometheus_data` и `grafana_data`. Профиль останавливается отдельно от API и воркеров.
+
+```bash
+docker compose --profile monitoring stop grafana prometheus
+```
+
+Настройки сбора и загрузки конфигурации. [Prometheus](https://prometheus.io/docs/prometheus/latest/configuration/configuration/), [Grafana](https://grafana.com/docs/grafana/latest/administration/provisioning/).
+
+## Структурированные логи
+
+API, Celery worker и Celery beat в Compose пишут по одному JSON-объекту на строку. В `.env` уровень задаёт `LOG_LEVEL`, значение по умолчанию — `INFO`.
+
+```bash
+docker compose logs --no-log-prefix --no-color api celery-worker celery-beat
+```
+
+Общие поля — `timestamp` в UTC, `level`, `service`, `logger` и `message`. Запись HTTP содержит `method`, шаблон `route`, `status` и `duration_ms`. Запись Celery о завершении попытки содержит `task`, `task_id`, номер `attempt`, `outcome` и `duration_ms`. Ошибка фоновой операции содержит тип исходного исключения. Структурированные записи о запросах и задачах используют только эти поля. Параметры URL, тела запросов, токены, аргументы задач и текст SQL в них не передаются.
+
+Для локального запуска API с тем же форматом используйте `uv run python -m app.server --port 8000`. Celery настраивает формат через сигнал `setup_logging`. Флаг `--quiet` перед `-A` отключает стартовый баннер. [Сигналы Celery](https://docs.celeryq.dev/en/stable/userguide/signals.html#setup-logging)

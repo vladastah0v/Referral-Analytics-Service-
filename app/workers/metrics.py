@@ -1,8 +1,11 @@
+import logging
 import os
 from time import perf_counter
 
 from celery import signals, states
 from prometheus_client import CollectorRegistry, Counter, Histogram, multiprocess, start_http_server
+
+logger = logging.getLogger(__name__)
 
 TASK_DURATION = Histogram(
     "referral_celery_task_duration_seconds",
@@ -33,12 +36,23 @@ def instrument_worker(app):
             sender.request.referral_metrics_started = perf_counter()
 
     @signals.task_postrun.connect(weak=False)
-    def finish_task(sender, state=None, **kwargs):
+    def finish_task(sender, task_id, state=None, **kwargs):
         if sender.app.main == app_name:
             started = getattr(sender.request, "referral_metrics_started", None)
             if started is not None:
-                TASK_DURATION.labels(sender.name, OUTCOMES.get(state, "other")).observe(
-                    perf_counter() - started
+                elapsed = perf_counter() - started
+                outcome = OUTCOMES.get(state, "other")
+                TASK_DURATION.labels(sender.name, outcome).observe(elapsed)
+                logger.log(
+                    logging.ERROR if state == states.FAILURE else logging.INFO,
+                    "Celery task finished",
+                    extra={
+                        "task": sender.name,
+                        "task_id": task_id,
+                        "outcome": outcome,
+                        "duration_ms": round(elapsed * 1000, 3),
+                        "attempt": sender.request.retries + 1,
+                    },
                 )
 
     @signals.task_failure.connect(weak=False)

@@ -12,4 +12,4 @@ COPY --chown=app:app alembic.ini ./alembic.ini
 ENV PATH="/app/.venv/bin:$PATH"
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "app.server", "--host", "0.0.0.0"]

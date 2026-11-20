@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 5s
+
+scrape_configs:
+  - job_name: referral-api
+    dns_sd_configs:
+      - names: [api]
+        type: A
+        port: 8000
+  - job_name: referral-worker
+    dns_sd_configs:
+      - names: [celery-worker]
+        type: A
+        port: 9101

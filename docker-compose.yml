@@ -4,6 +4,7 @@ x-app: &app
     - path: .env
       required: false
   environment: &app-env
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
     APP_ENV: ${APP_ENV:-development}
     JWT_SECRET: ${JWT_SECRET:-local-development-only-change-this-jwt-secret-before-deployment}
     JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-15}
@@ -40,10 +41,13 @@ services:
       - -ec
       - |
         export PROMETHEUS_MULTIPROC_DIR="$$(mktemp -d /tmp/referral-prometheus.XXXXXX)"
-        exec celery -A app.workers.celery_app:celery_app worker --loglevel=INFO
+        exec celery --quiet -A app.workers.celery_app:celery_app worker --loglevel="$$LOG_LEVEL"
   celery-beat:
     <<: *app
-    command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    command:
+      - sh
+      - -ec
+      - exec celery --quiet -A app.workers.celery_app:celery_app beat --loglevel="$$LOG_LEVEL" --schedule=/tmp/celerybeat-schedule
   postgres:
     image: postgres:16
     environment:
@@ -69,6 +73,37 @@ services:
       retries: 10
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v3.13.5
+    profiles: [monitoring]
+    depends_on:
+      - api
+      - celery-worker
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:12.4.12
+    profiles: [monitoring]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-local-monitoring-only}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
 volumes:
+  prometheus_data:
+  grafana_data:
   postgres_data:
   redis_data:
