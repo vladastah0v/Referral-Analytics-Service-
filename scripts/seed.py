@@ -69,7 +69,11 @@ class Scenario:
         return uuid5(NAMESPACE_URL, f"referral-analytics/seed/v1/{parameters}")
 
     def email(self, index: int) -> str:
-        return f"referral-seed-{self.seed}-{index}@example.com"
+        return self.email_for_seed(self.seed, index)
+
+    @staticmethod
+    def email_for_seed(seed: int, index: int) -> str:
+        return f"referral-seed-{seed}-{index}@example.com"
 
 
 def entity_id(namespace: UUID, kind: str, index: int | str) -> UUID:

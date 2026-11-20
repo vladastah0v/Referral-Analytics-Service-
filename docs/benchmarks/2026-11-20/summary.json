@@ -1,0 +1,48 @@
+{
+  "started_at": "2026-11-20T16:29:30.640198+00:00",
+  "source": "benchmark-08eb9f2cefc35b4e",
+  "seed": 42,
+  "users": 8,
+  "spawn_rate": 4.0,
+  "seconds_per_phase": 30,
+  "initial_rows": {
+    "users": 10000,
+    "referral_clicks": 30000,
+    "referral_attributions": 2000,
+    "leads": 5000,
+    "orders": 5000
+  },
+  "platform": "macOS-15.8.2-x86_64-i386-64bit",
+  "python": "3.12.16",
+  "locust": "2.47.0",
+  "postgres": "16.16 (Debian 16.16-1.pgdg13+1)",
+  "redis": "7.4.12",
+  "read": {
+    "pg_calls": 2561,
+    "pg_total_exec_ms": 1921.363,
+    "pg_mean_exec_ms": 0.75,
+    "redis_hits": 192,
+    "redis_misses": 2,
+    "redis_hit_ratio": 0.989691,
+    "locust_exit_code": 0
+  },
+  "mixed": {
+    "pg_calls": 9889,
+    "pg_total_exec_ms": 14177.212,
+    "pg_mean_exec_ms": 1.434,
+    "redis_hits": 20,
+    "redis_misses": 82,
+    "redis_hit_ratio": 0.196078,
+    "locust_exit_code": 0
+  },
+  "outbox": {
+    "pending": 0,
+    "rejected": 0,
+    "created_events": 61,
+    "orders": 61,
+    "payments": 61,
+    "rewards": 61,
+    "correct_amounts": 61
+  },
+  "drain_seconds": 4.12
+}
