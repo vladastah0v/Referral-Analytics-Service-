@@ -316,6 +316,105 @@
           "range": true
         }
       ]
+    },
+    {
+      "id": 10,
+      "title": "Outbox pending",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "referral-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "referral-prometheus"
+          },
+          "expr": "max(referral_outbox_pending)",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Oldest pending outbox event",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "referral-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "referral-prometheus"
+          },
+          "expr": "max(referral_outbox_oldest_pending_seconds)",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Failed event submissions",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "referral-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "referral-prometheus"
+          },
+          "expr": "sum by (mode, status) (rate(referral_event_ingestion_failures_total[$__rate_interval]))",
+          "range": true
+        }
+      ]
     }
   ]
 }

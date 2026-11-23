@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import (
     UUID4,
-    AwareDatetime,
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -15,13 +15,14 @@ from pydantic import (
     model_validator,
 )
 
+from app.common.validation import UTCDateTime, validate_postgres_text
 from app.modules.referrals.models import RewardType
 
 
 class ReferralCodeCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    expires_at: AwareDatetime | None = None
+    expires_at: UTCDateTime | None = None
     max_uses: Annotated[int, Field(strict=True, ge=1, le=2_147_483_647)] | None = None
 
     @field_validator("expires_at")
@@ -38,7 +39,7 @@ class ReferralCodeUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_active: StrictBool | None = None
-    expires_at: AwareDatetime | None = None
+    expires_at: UTCDateTime | None = None
     max_uses: Annotated[int, Field(strict=True, ge=1, le=2_147_483_647)] | None = None
 
     @field_validator("expires_at")
@@ -76,7 +77,11 @@ class ReferralCodePage(BaseModel):
 class ReferralProgramCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+        AfterValidator(validate_postgres_text),
+    ]
     reward_type: RewardType
     reward_value: Annotated[
         Decimal, Field(gt=0, max_digits=14, decimal_places=2, allow_inf_nan=False)
@@ -84,10 +89,14 @@ class ReferralProgramCreate(BaseModel):
     max_reward: (
         Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2, allow_inf_nan=False)] | None
     ) = None
-    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+    currency: Annotated[
+        str,
+        StringConstraints(pattern=r"^[A-Z]{3}$"),
+        AfterValidator(validate_postgres_text),
+    ]
     is_active: StrictBool = True
-    starts_at: AwareDatetime
-    ends_at: AwareDatetime | None = None
+    starts_at: UTCDateTime
+    ends_at: UTCDateTime | None = None
 
     @field_validator("starts_at", "ends_at")
     @classmethod
@@ -107,7 +116,11 @@ class ReferralProgramUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: (
-        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+            AfterValidator(validate_postgres_text),
+        ]
         | None
     ) = None
     reward_type: RewardType | None = None
@@ -117,10 +130,17 @@ class ReferralProgramUpdate(BaseModel):
     max_reward: (
         Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2, allow_inf_nan=False)] | None
     ) = None
-    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")] | None = None
+    currency: (
+        Annotated[
+            str,
+            StringConstraints(pattern=r"^[A-Z]{3}$"),
+            AfterValidator(validate_postgres_text),
+        ]
+        | None
+    ) = None
     is_active: StrictBool | None = None
-    starts_at: AwareDatetime | None = None
-    ends_at: AwareDatetime | None = None
+    starts_at: UTCDateTime | None = None
+    ends_at: UTCDateTime | None = None
 
     @field_validator("starts_at", "ends_at")
     @classmethod
@@ -160,15 +180,27 @@ class ReferralProgramPage(BaseModel):
 class ReferralClickCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    code: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=64),
+        AfterValidator(validate_postgres_text),
+    ]
     visitor_id: UUID4
     request_id: UUID4
     source: (
-        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+            AfterValidator(validate_postgres_text),
+        ]
         | None
     ) = None
     campaign: (
-        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+            AfterValidator(validate_postgres_text),
+        ]
         | None
     ) = None
 

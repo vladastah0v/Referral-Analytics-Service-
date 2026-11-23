@@ -68,7 +68,27 @@ jobs:
       - name: Run tests and enforce coverage
         run: uv run --locked pytest --cov=app --cov-report=term-missing --cov-fail-under=70
 
-      - name: Build and smoke-test the Docker image
+      - name: Build and smoke-test the Compose stack
+        env:
+          COMPOSE_PROJECT_NAME: referral-ci-smoke
+          DATABASE_URL: postgresql+asyncpg://referral:local-development-only@postgres:5432/referral_analytics
         run: |
-          docker build --tag referral-analytics:ci .
-          docker run --rm referral-analytics:ci python -c "from app.main import app; assert '/api/v1/events/batch' in app.openapi()['paths']"
+          trap 'docker compose down -v' EXIT
+          docker compose build api celery-worker celery-beat
+          docker compose up -d postgres redis
+          docker compose run --rm api alembic upgrade head
+          docker compose up -d api celery-worker celery-beat
+          key="$(docker compose exec -T api python -c '
+          import asyncio
+          from app.core.database import engine, session_factory
+          from app.modules.tracking.security import create_credential
+
+          async def main():
+              async with session_factory() as session:
+                  _, key = await create_credential(session, "ci-smoke")
+                  print(key)
+              await engine.dispose()
+
+          asyncio.run(main())
+          ')"
+          printf '%s\n' "$key" | uv run --locked python tests/smoke_compose.py

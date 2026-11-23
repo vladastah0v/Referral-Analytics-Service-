@@ -1,50 +1,50 @@
 # Referral Analytics Service
 
-## Project Overview
+## О сервисе
 
-Referral Analytics Service connects referral links to registrations, CRM leads, and customer orders. It tracks attributable revenue and maintains a referral reward history as payments, refunds, and adjustments are processed. Customers can see their own referrals and rewards. Managers and administrators can monitor the funnel and revenue within their access scope.
+Referral Analytics Service связывает переходы по реферальным ссылкам с регистрациями, заявками в CRM и заказами. Сервис рассчитывает выручку по реферальным заказам и ведёт историю вознаграждений с учётом оплат, возвратов и корректировок. Клиенты видят статистику по своим приглашениям и начислениям. Менеджеры и администраторы отслеживают воронку и выручку в пределах своих прав доступа.
 
-## Features
+## Возможности
 
-- JWT authentication with rotating refresh tokens and role-based access.
-- Referral codes with optional expiry and attribution limits, idempotent click tracking, and a 30-day last-click attribution window.
-- CRM lead assignment, controlled status transitions, and status history.
-- Batch event ingestion, a transactional outbox, and an idempotent financial ledger.
-- Fixed or percentage rewards with rule snapshots, refund recalculation, and administrator approval.
-- Analytics by currency, time period, referral code, campaign, and source, with Redis caching and daily PostgreSQL snapshots.
-- Prometheus metrics, a provisioned Grafana dashboard, and structured JSON logs.
+- Авторизация через JWT с ротацией токенов обновления и ролевым доступом.
+- Реферальные коды с настраиваемым сроком действия и лимитом атрибуций, идемпотентный учёт переходов и 30-дневное окно атрибуции по последнему подходящему переходу.
+- Назначение заявок менеджерам, проверка переходов между статусами и история изменений.
+- Пакетный приём событий, транзакционная очередь outbox и учёт финансовых операций без повторных начислений.
+- Фиксированные и процентные вознаграждения с сохранением правил на момент оплаты, перерасчётом при возврате и одобрением администратором.
+- Аналитика по валютам, периодам, реферальным кодам, кампаниям и источникам с кэшированием в Redis и дневными срезами в PostgreSQL.
+- Метрики Prometheus, готовый дашборд Grafana и структурированные журналы в формате JSON.
 
-## Tech Stack
+## Технологии
 
-| Layer | Technology |
+| Компонент | Технологии |
 | --- | --- |
 | API | Python 3.12, FastAPI, Pydantic, Uvicorn |
-| Data | PostgreSQL 16, SQLAlchemy async, asyncpg, Alembic |
-| Cache and background processing | Redis 7, Celery worker, Celery beat |
-| Operations | Docker Compose, Prometheus, Grafana |
-| Verification | Ruff, pytest, pytest-cov, Locust, GitHub Actions |
+| Хранение данных | PostgreSQL 16, асинхронный SQLAlchemy, asyncpg, Alembic |
+| Кэш и фоновые задачи | Redis 7, Celery Worker, Celery Beat |
+| Эксплуатация | Docker Compose, Prometheus, Grafana |
+| Проверки | Ruff, pytest, pytest-cov, Locust, GitHub Actions |
 
-## Architecture
+## Архитектура
 
-The API writes domain data to PostgreSQL and accepts integration notifications through the tracking module. PostgreSQL is the source of truth for orders, financial operations, and rewards. Celery processes the outbox and refreshes daily snapshots. Redis handles task delivery and report caching. Prometheus scrapes the API and worker independently. Grafana reads from Prometheus. [Architecture and data diagrams](docs/architecture.md)
+API записывает данные в PostgreSQL и принимает уведомления от интеграций через модуль событий. PostgreSQL хранит состояние заказов, финансовые операции и начисления. Celery обрабатывает очередь событий и обновляет дневные срезы. Redis служит брокером задач и кэшем отчётов. Prometheus собирает метрики API и воркеров по отдельности, а Grafana отображает их. [Схемы архитектуры и данных](docs/architecture.md)
 
-## Database Schema
+## Схема базы данных
 
-| Tables | Responsibility |
+| Таблицы | Назначение |
 | --- | --- |
-| `users`, `auth_sessions` | Accounts, roles, and refresh sessions |
-| `referral_programs`, `referral_codes`, `referral_clicks`, `referral_attributions` | Reward rules, referral links, clicks, and one attribution per referred user |
-| `leads`, `lead_status_history` | CRM assignment, status, and transition history |
-| `integration_credentials`, `events`, `event_outbox` | Integration identity, incoming events, and processing state |
-| `orders`, `order_financial_events` | Order state, frozen attribution, and financial operations |
-| `referral_rewards`, `referral_reward_history` | One reward per eligible order, the rules applied at payment, and subsequent changes |
-| `analytics_cache_revisions`, `analytics_daily_snapshots`, `analytics_snapshot_requests`, `analytics_snapshot_failures` | Cache versioning and daily snapshot storage, scheduling, and recovery |
+| `users`, `auth_sessions` | Учётные записи, роли и сессии обновления токенов |
+| `referral_programs`, `referral_codes`, `referral_clicks`, `referral_attributions` | Правила начисления, ссылки, переходы и одна атрибуция на приглашённого пользователя |
+| `leads`, `lead_status_history` | Назначения менеджеров, статусы заявок и история переходов |
+| `integration_credentials`, `events`, `event_outbox` | Учётные данные интеграций, входящие события и состояние обработки |
+| `orders`, `order_financial_events` | Состояние заказов, зафиксированная атрибуция и финансовые операции |
+| `referral_rewards`, `referral_reward_history` | Одно вознаграждение на заказ, подходящий под условия программы, правила на момент оплаты и история изменений |
+| `analytics_cache_revisions`, `analytics_daily_snapshots`, `analytics_snapshot_requests`, `analytics_snapshot_failures` | Версии кэша, дневные срезы, запросы на пересчёт и ошибки пересчёта |
 
-See the [ER diagram and transaction boundaries](docs/architecture.md#основные-связи-данных).
+Связи таблиц и границы транзакций описаны в документации. [ER-диаграмма](docs/architecture.md#основные-связи-данных)
 
-## Quick Start
+## Быстрый запуск
 
-Run from the repository root with Docker Compose. On a fresh checkout, copy the local configuration and apply migrations before starting the API and workers.
+Выполните команды из корня репозитория. При первом запуске скопируйте локальную конфигурацию и примените миграции до запуска API и воркеров.
 
 ```bash
 cp .env.example .env
@@ -54,63 +54,66 @@ docker compose up -d --build
 curl --fail http://127.0.0.1:8000/health/ready
 ```
 
-Open [Swagger UI](http://127.0.0.1:8000/docs) or fetch the [OpenAPI schema](http://127.0.0.1:8000/openapi.json). To initialize an administrator and issue an integration key, run these commands in an interactive terminal.
+После запуска можно открыть интерактивную документацию API или получить схему в JSON. [Swagger UI](http://127.0.0.1:8000/docs), [OpenAPI](http://127.0.0.1:8000/openapi.json)
+
+Создайте администратора, менеджера CRM и ключ интеграции в интерактивном терминале. Команды создания аккаунтов запросят пароль.
 
 ```bash
 docker compose exec api python -m app.cli create-admin --email admin@example.com --full-name "Administrator"
+docker compose exec api python -m app.cli create-manager --email manager@example.com --full-name "CRM Manager"
 docker compose exec api python -m app.cli create-integration --source shop
 ```
 
-The administrator command prompts for a password. Store the issued integration key securely. For deployment, supply your own database credentials and JWT secret and serve external traffic over HTTPS. [Authentication](docs/authentication.md), [Integration credentials](docs/tracking.md).
+Храните ключ интеграции в защищённом месте. Если `APP_ENV` не задан, Docker Compose выбирает режим `production`. Для развёртывания задайте собственные учётные данные PostgreSQL и секрет JWT. Настройте внешний доступ к API через HTTPS. [Авторизация](docs/authentication.md), [Ключи интеграций](docs/tracking.md)
 
-Enable the optional monitoring profile with `docker compose --profile monitoring up -d`. Prometheus listens on local port 9090 and Grafana on local port 3000. [Monitoring setup and JSON logs](docs/monitoring.md)
+Чтобы включить мониторинг, выполните `docker compose --profile monitoring up -d`. Prometheus доступен на локальном порту 9090, Grafana — на 3000. [Настройка мониторинга и журналов JSON](docs/monitoring.md)
 
-## API Documentation
+## API
 
-Business routes use `/api/v1`. Protected user routes use `Authorization: Bearer <access_token>`. Event ingestion uses `X-Integration-Key`.
+Маршруты ниже используют префикс `/api/v1`. Для защищённых пользовательских маршрутов передавайте `Authorization: Bearer <access_token>`. Для отправки событий используйте `X-Integration-Key`.
 
-| Area | Main routes |
+| Раздел | Основные маршруты |
 | --- | --- |
-| Authentication | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /users/me` |
-| Referrals | `POST /referrals/track`, `GET /referrals/statistics`, `/referrals/codes`, `/admin/referral-programs` |
+| Авторизация | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /users/me` |
+| Реферальная система | `POST /referrals/track`, `GET /referrals/statistics`, `/referrals/codes`, `/admin/referral-programs` |
 | CRM | `GET /leads`, `POST /leads`, `PATCH /leads/{lead_id}/status`, `PATCH /leads/{lead_id}/assign`, `GET /leads/{lead_id}/history` |
-| Integration | `POST /events`, `POST /events/batch`, `GET /events/{event_id}` |
-| Orders and rewards | `GET /orders`, `GET /rewards/me`, `GET /admin/rewards`, `PATCH /admin/rewards/{reward_id}/approve` |
-| Analytics | `GET /analytics/overview`, `/analytics/referrals`, `/analytics/funnel`, `/analytics/revenue`, `/analytics/top-referrers`, `/analytics/conversion` |
+| Интеграции | `POST /events`, `POST /events/batch`, `GET /events/{event_id}` |
+| Заказы и вознаграждения | `GET /orders`, `GET /rewards/me`, `GET /admin/rewards`, `PATCH /admin/rewards/{reward_id}/approve` |
+| Аналитика | `GET /analytics/overview`, `/analytics/referrals`, `/analytics/funnel`, `/analytics/revenue`, `/analytics/top-referrers`, `/analytics/conversion` |
 
-A valid new event returns `202` and an event ID. An identical retry returns `200`. Reusing the same external event ID within a source with different data returns `409`. Batch ingestion accepts up to 100 events and returns `207` with a status for each item. [Event payloads and processing states](docs/tracking.md)
+При приёме нового события API возвращает `202` и идентификатор события. Повторная отправка с теми же данными возвращает `200`. Если источник повторно использует внешний идентификатор события с другими данными, API возвращает `409`. Один пакет может содержать до 100 событий. Ответ `207` содержит статус каждого элемента. [Форматы событий и статусы обработки](docs/tracking.md)
 
-## Referral Attribution Logic
+## Реферальная атрибуция
 
-1. The client sends a stable random UUIDv4 as `visitor_id` and a per-click UUIDv4 as `request_id` to the tracking endpoint.
-2. Registration with the same visitor ID searches the preceding 30 days. It selects the latest eligible click, using the click UUID to break timestamp ties.
-3. Eligibility requires an active, unexpired code, an available attribution slot when a limit exists, and a different account from the referrer. The service checks and records attribution inside the registration transaction.
-4. Order creation freezes the buyer’s attribution as of the creation event. The first confirmed payment selects the matching active reward program by currency and payment time. Refunds and adjustments recalculate the reward under those saved rules.
+1. При записи перехода клиент передаёт постоянный для посетителя случайный UUIDv4 в `visitor_id` и отдельный UUIDv4 для перехода в `request_id`.
+2. При регистрации с тем же `visitor_id` сервис ищет подходящие переходы за предыдущие 30 дней и выбирает самый свежий. При совпадении времени порядок определяется по UUID перехода.
+3. Код должен быть активен, срок его действия и лимит атрибуций должны позволять новую регистрацию по ссылке. Приглашения по собственному коду исключаются. Проверка условий и запись атрибуции происходят в транзакции регистрации.
+4. При создании заказа сервис фиксирует атрибуцию покупателя на момент события создания. При первой подтверждённой оплате сервис выбирает действующую программу по валюте и времени оплаты. При возвратах и корректировках размер вознаграждения пересчитывается по сохранённым правилам.
 
-[Attribution sequence](docs/architecture.md#атрибуция-регистрации), [Referral rules](docs/referrals.md), [CRM](docs/crm.md), [Order lifecycle](docs/orders.md), [Reward calculation](docs/rewards.md).
+[Последовательность атрибуции](docs/architecture.md#атрибуция-регистрации), [Правила реферальной системы](docs/referrals.md), [Работа с CRM](docs/crm.md), [Жизненный цикл заказа](docs/orders.md), [Расчёт вознаграждений](docs/rewards.md)
 
-## Analytics Metrics
+## Показатели аналитики
 
-| Metric | Definition |
+| Показатель | Расчёт |
 | --- | --- |
-| Referral reach | Recorded clicks and distinct visitors across the selected codes |
-| Referral conversion | Attributed registrations divided by distinct visitors, expressed as a percentage. Clicks and registrations are selected on their respective timestamps. |
-| CRM conversion | Converted leads divided by leads created in the selected period |
-| Net revenue | Confirmed payments plus credit adjustments, minus refunds and debit adjustments |
-| Attributed revenue | Net revenue assigned to orders with a frozen referral attribution |
-| Reward totals | Changes in reward amounts recorded in reward history |
+| Реферальный охват | Число переходов и уникальных посетителей по выбранным кодам |
+| Реферальная конверсия | Доля регистраций с атрибуцией от числа уникальных посетителей в процентах. Переходы и регистрации включаются в расчёт по времени каждого события. |
+| Конверсия CRM | Доля конвертированных заявок среди заявок, созданных за выбранный период |
+| Чистая выручка | Подтверждённые оплаты и положительные корректировки за вычетом возвратов и отрицательных корректировок |
+| Реферальная выручка | Чистая выручка по заказам с зафиксированной реферальной атрибуцией |
+| Суммы вознаграждений | Изменения сумм, записанные в истории начислений |
 
-Time filters use UTC with an inclusive start and exclusive end. Monetary totals are kept separate by currency. Report cache keys include the user, role, filters, and the PostgreSQL data revision. [Analytics filters, aggregation, and caching](docs/analytics.md)
+Фильтры времени работают в UTC. Начало периода включается в выборку, конец исключается. Денежные суммы рассчитываются отдельно по каждой валюте. Ключ кэша отчёта учитывает пользователя, роль, фильтры и версию данных PostgreSQL. [Фильтры аналитики, агрегация и кэширование](docs/analytics.md)
 
-## Background Processing
+## Фоновая обработка
 
-The API inserts an accepted event and its outbox row in one transaction. Workers lock available rows with `SKIP LOCKED`. A financial operation, any resulting reward revision, and the event status commit together. Retries can safely repeat a delivery. Beat schedules outbox processing, changed-day refreshes, daily snapshots, and expired session cleanup. [Event processing diagram, schedules, and recovery commands](docs/workers.md)
+API сохраняет принятое событие и запись в outbox в одной транзакции. Воркеры блокируют доступные записи с помощью `SKIP LOCKED`. Финансовая операция, изменение вознаграждения и статус события фиксируются вместе. Повторная доставка того же события не приводит к повторной операции. Celery Beat планирует обработку outbox, пересчёт изменившихся дат, формирование дневных срезов и очистку просроченных сессий. [Схема обработки, расписание и команды восстановления](docs/workers.md)
 
-## Testing
+## Тестирование
 
-GitHub Actions runs Ruff, applies and checks migrations on PostgreSQL, runs pytest with Redis, enforces 70% application coverage, and builds the Docker image. [Workflow](.github/workflows/ci.yml)
+GitHub Actions запускает Ruff, применяет и проверяет миграции в PostgreSQL и выполняет pytest с Redis. Требуемое покрытие приложения составляет 70%. Затем CI собирает и поднимает сервисы в Docker Compose и проверяет обработку оплаты заказа через Celery. [Конфигурация CI](.github/workflows/ci.yml)
 
-Run unit tests locally with `uv run --locked pytest tests/unit`. For the full suite, start dedicated disposable PostgreSQL and Redis instances and set their connection URLs. Integration tests apply migrations and clear business tables between cases. The PostgreSQL database name must begin with `test_`.
+Для запуска модульных тестов используйте `uv run --locked pytest tests/unit`. Для полного набора запустите отдельные экземпляры PostgreSQL и Redis и укажите адреса подключения. Интеграционные тесты применяют миграции и очищают таблицы с данными между сценариями. Имя тестовой базы PostgreSQL должно начинаться с `test_`.
 
 ```bash
 export TEST_DATABASE_URL=postgresql+asyncpg://ci:ci-local@127.0.0.1:5432/test_referral_ci
@@ -118,31 +121,31 @@ export TEST_REDIS_URL=redis://127.0.0.1:6379/14
 uv run --locked pytest --cov=app --cov-report=term-missing --cov-fail-under=70
 ```
 
-## Performance Benchmarks
+## Нагрузочное тестирование
 
-The recorded Locust run used a synthetic dataset with 10,000 users and 30,000 clicks. Each phase ramped up to eight virtual users and ran for 30 seconds on a local Mac with PostgreSQL and Redis in Docker.
+В опубликованном прогоне Locust использовались синтетические данные с 10 000 пользователей и 30 000 переходов. Каждая фаза длилась 30 секунд с постепенным увеличением нагрузки до восьми виртуальных пользователей. Тест выполнялся на локальном Mac, PostgreSQL и Redis работали в Docker.
 
-| Phase | Requests | Requests/s | p95 | p99 | Errors |
+| Фаза | Запросы | Запросов/с | p95 | p99 | Ошибки |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Read | 413 | 14.24 | 53 ms | 180 ms | 0 |
-| Mixed | 367 | 12.64 | 290 ms | 440 ms | 0 |
+| Чтение | 413 | 14,24 | 53 мс | 180 мс | 0 |
+| Смешанная нагрузка | 367 | 12,64 | 290 мс | 440 мс | 0 |
 
-These measurements describe the recorded workload and hardware. [Reproduction guide, PostgreSQL and Redis measurements, and raw CSV](docs/benchmark.md), [Synthetic data commands](docs/seed.md).
+Результаты относятся к указанной нагрузке и стенду. В опубликованном прогоне запускались дополнительные задачи обработки outbox. Текущий сценарий использует штатное расписание Celery Beat. [Инструкция по запуску, метрики PostgreSQL и Redis и исходные CSV](docs/benchmark.md), [Генерация синтетических данных](docs/seed.md)
 
-## Project Structure
+## Структура проекта
 
 ```text
-app/core/               Settings, database, authentication, logs, and metrics
-app/modules/            Users, auth, referrals, CRM, orders, rewards, tracking, analytics
-app/workers/            Celery tasks, scheduler configuration, and worker metrics
-migrations/             Alembic migrations
-scripts/                Synthetic dataset, event generation, and benchmarking
-tests/                  Unit, PostgreSQL integration, and Locust workloads
-infra/                  Prometheus and Grafana configuration
-docs/                   Architecture, business rules, operations, and benchmark results
-.github/workflows/      CI workflow
+app/core/               Настройки, база данных, авторизация, журналы и метрики
+app/modules/            Пользователи, авторизация, рефералы, CRM, заказы, вознаграждения, события и аналитика
+app/workers/            Задачи Celery, расписание и метрики воркеров
+migrations/             Миграции Alembic
+scripts/                Генерация данных и событий, запуск нагрузочных тестов
+tests/                  Модульные и интеграционные тесты с PostgreSQL, сценарии Locust
+infra/                  Конфигурация Prometheus и Grafana
+docs/                   Архитектура, бизнес-правила, эксплуатация и результаты замеров
+.github/workflows/      Конфигурация CI
 ```
 
-## Roadmap
+## Дальнейшее развитие
 
-Potential extensions include reconciliation tooling for operators, longer benchmark runs with additional deployment profiles, and configurable alert thresholds for outbox delays and failed tasks.
+Возможные направления развития — инструменты сверки для операторов, более длительные нагрузочные прогоны для разных конфигураций развёртывания и настраиваемые пороги оповещений о задержке outbox и сбоях задач.

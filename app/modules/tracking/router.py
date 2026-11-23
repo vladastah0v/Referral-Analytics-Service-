@@ -2,11 +2,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import ValidationError
-from sqlalchemy import exists, select
+from sqlalchemy import String, and_, exists, or_, select
 
 from app.core.dependencies import CurrentUser, SessionDependency
 from app.modules.leads.models import Lead
 from app.modules.orders.models import Order
+from app.modules.tracking.metrics import EVENT_INGESTION_FAILURES
 from app.modules.tracking.models import Event, EventOutbox
 from app.modules.tracking.schemas import (
     BatchItem,
@@ -38,6 +39,7 @@ async def ingest_event(
     try:
         event, created = await EventIngestionService(session).accept(principal.source_system, data)
     except EventConflictError as exc:
+        EVENT_INGESTION_FAILURES.labels("single", "409").inc()
         raise HTTPException(
             status_code=409, detail="Event ID already used with different data"
         ) from exc
@@ -62,11 +64,13 @@ async def ingest_batch(
         try:
             event_data = EventCreate.model_validate(raw)
         except ValidationError:
+            EVENT_INGESTION_FAILURES.labels("batch", "422").inc()
             results.append(BatchItem(index=index, status_code=422, error="Invalid event"))
             continue
         try:
             event, created = await EventIngestionService(session).accept(source_system, event_data)
         except EventConflictError:
+            EVENT_INGESTION_FAILURES.labels("batch", "409").inc()
             results.append(BatchItem(index=index, status_code=409, error="Event ID conflict"))
             continue
         results.append(
@@ -88,48 +92,38 @@ async def get_event(
 ) -> EventRead:
     if user.role not in (UserRole.MANAGER, UserRole.ADMIN):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
-    event = await session.get(Event, event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+    statement = (
+        select(Event, EventOutbox.attempts, EventOutbox.last_error)
+        .join(EventOutbox, EventOutbox.event_id == Event.id)
+        .where(Event.id == event_id)
+    )
     if user.role == UserRole.MANAGER:
-        if event.event_type in ("lead_created", "lead_qualified"):
-            visible = event.processing_status == "processed" and await session.scalar(
-                select(
-                    exists().where(
-                        Lead.id == UUID(event.payload["lead_id"]),
-                        Lead.assigned_manager_id == user.id,
-                    )
-                )
-            )
-        elif event.event_type == "user_registered":
-            visible = event.processing_status == "processed" and await session.scalar(
-                select(
-                    exists().where(
-                        Lead.user_id == event.user_id, Lead.assigned_manager_id == user.id
-                    )
-                )
-            )
-        elif event.event_type == "referral_clicked":
-            visible = False
-        else:
-            order_id = event.payload.get("external_order_id")
-            visible = await session.scalar(
-                select(
-                    exists().where(
-                        Order.source_system == event.source_system,
-                        Order.external_order_id == order_id,
-                        exists().where(
-                            Lead.user_id == Order.user_id, Lead.assigned_manager_id == user.id
-                        ),
-                    )
-                )
-            )
-        if not visible:
-            raise HTTPException(status_code=404, detail="Event not found")
-    outbox = await session.scalar(select(EventOutbox).where(EventOutbox.event_id == event.id))
-    if outbox is None:
-        raise RuntimeError("Outbox event missing")
+        assigned_user = exists().where(
+            Lead.user_id == Event.user_id, Lead.assigned_manager_id == user.id
+        )
+        assigned_lead = exists().where(
+            Lead.id.cast(String) == Event.payload["lead_id"].as_string(),
+            Lead.user_id == Event.user_id,
+            Lead.assigned_manager_id == user.id,
+        )
+        confirmed_order = exists().where(
+            Order.source_system == Event.source_system,
+            Order.external_order_id == Event.payload["external_order_id"].as_string(),
+            Order.user_id == Event.user_id,
+        )
+        statement = statement.where(
+            Event.processing_status == "processed",
+            or_(
+                and_(Event.event_type.in_(("lead_created", "lead_qualified")), assigned_lead),
+                and_(Event.event_type == "user_registered", assigned_user),
+                and_(Event.event_type.startswith("order_"), assigned_user, confirmed_order),
+            ),
+        )
+    result = (await session.execute(statement)).one_or_none()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event, attempts, last_error = result
     response.headers["Cache-Control"] = "private, no-store"
     return EventRead.model_validate(event).model_copy(
-        update={"attempts": outbox.attempts, "last_error": outbox.last_error}
+        update={"attempts": attempts, "last_error": last_error}
     )

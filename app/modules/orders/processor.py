@@ -112,21 +112,42 @@ class OrderEventProcessor:
             kind = FinancialEventType.ADJUSTMENT_CREDIT
         else:
             kind = FinancialEventType.ADJUSTMENT_DEBIT
-        operation_id = f"{kind.value}:{payload['operation_id']}"
-        amount = Decimal(payload["amount"])
-        existing = await self.session.scalar(
-            select(OrderFinancialEvent).where(
-                OrderFinancialEvent.source_system == event.source_system,
-                OrderFinancialEvent.external_financial_event_id == operation_id,
+        external_operation = payload["operation_id"]
+        operation_id = f"{kind.value}:{external_operation}"
+        aliases = [operation_id]
+        if kind in (FinancialEventType.ADJUSTMENT_CREDIT, FinancialEventType.ADJUSTMENT_DEBIT):
+            operation_id = f"adjustment:{external_operation}"
+            aliases = [
+                operation_id,
+                f"adjustment_credit:{external_operation}",
+                f"adjustment_debit:{external_operation}",
+            ]
+            # Serialize identity checks across orders, including legacy directional IDs.
+            key = hashlib.blake2s(
+                (event.source_system + "\0" + operation_id).encode(), digest_size=4
+            ).digest()
+            await self.session.execute(
+                select(
+                    func.pg_advisory_xact_lock(0x41444A55, int.from_bytes(key, "big", signed=True))
+                )
             )
-        )
-        if existing is not None:
-            if (
-                existing.order_id != order.id
-                or existing.event_type != kind
-                or existing.amount != amount
-                or existing.currency != payload["currency"]
-                or existing.occurred_at != event.occurred_at
+        amount = Decimal(payload["amount"])
+        existing = (
+            await self.session.scalars(
+                select(OrderFinancialEvent).where(
+                    OrderFinancialEvent.source_system == event.source_system,
+                    OrderFinancialEvent.external_financial_event_id.in_(aliases),
+                )
+            )
+        ).all()
+        if existing:
+            if any(
+                row.order_id != order.id
+                or row.event_type != kind
+                or row.amount != amount
+                or row.currency != payload["currency"]
+                or row.occurred_at != event.occurred_at
+                for row in existing
             ):
                 raise RejectedOrderEvent("operation_identity_conflict")
             return True

@@ -15,18 +15,25 @@ from app.modules.users.schemas import UserCreate
 from app.modules.users.service import UserService
 
 
-async def create_admin(email: str, full_name: str, password: str) -> None:
+async def create_staff(email: str, full_name: str, password: str, role: UserRole) -> None:
     data = UserCreate(email=email, full_name=full_name, password=password)
     async with session_factory() as session:
-        await UserService(session).create(data, UserRole.ADMIN)
+        await UserService(session).create(data, role)
+
+
+async def create_admin(email: str, full_name: str, password: str) -> None:
+    await create_staff(email, full_name, password, UserRole.ADMIN)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Referral Analytics Service administration")
     commands = parser.add_subparsers(dest="command", required=True)
-    create = commands.add_parser("create-admin", help="Create an administrator interactively")
-    create.add_argument("--email", required=True)
-    create.add_argument("--full-name", required=True)
+    for role in ("admin", "manager"):
+        create = commands.add_parser(
+            f"create-{role}", help=f"Create a {role} account interactively"
+        )
+        create.add_argument("--email", required=True)
+        create.add_argument("--full-name", required=True)
     integration = commands.add_parser(
         "create-integration", help="Create service credentials interactively"
     )
@@ -82,7 +89,10 @@ def main() -> int:
 
         async def run() -> None:
             try:
-                await create_admin(args.email, args.full_name, password)
+                if args.command == "create-manager":
+                    await create_staff(args.email, args.full_name, password, UserRole.MANAGER)
+                else:
+                    await create_admin(args.email, args.full_name, password)
             finally:
                 await engine.dispose()
 
@@ -96,7 +106,7 @@ def main() -> int:
     except (EOFError, KeyboardInterrupt):
         print("\nCancelled.", file=sys.stderr)
         return 1
-    print("Administrator created.")
+    print("Manager created." if args.command == "create-manager" else "Administrator created.")
     return 0
 
 

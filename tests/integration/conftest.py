@@ -2,8 +2,10 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator
+from ipaddress import IPv6Address
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -11,6 +13,7 @@ from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
+from redis.exceptions import ConnectionError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -36,6 +39,7 @@ from app.main import (
 )
 from app.modules.analytics.cache import get_cache_client
 from app.modules.analytics.router import router as analytics_router
+from app.modules.auth.rate_limit import get_auth_rate_limit_redis
 from app.modules.auth.router import router as auth_router
 from app.modules.leads.router import router as leads_router
 from app.modules.orders.router import router as orders_router
@@ -102,8 +106,22 @@ def session_maker(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(db_engine, expire_on_commit=False)
 
 
+@pytest_asyncio.fixture
+async def auth_rate_limit_store():
+    if url := os.environ.get("TEST_REDIS_URL"):
+        async with Redis.from_url(url, decode_responses=True) as store:
+            yield store
+    else:
+
+        class OfflineStore:
+            async def eval(self, *_args):
+                raise ConnectionError("Redis is not configured for this test")
+
+        yield OfflineStore()
+
+
 @pytest.fixture
-def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
+def test_app(session_maker: async_sessionmaker[AsyncSession], auth_rate_limit_store) -> FastAPI:
     api = FastAPI()
     api.include_router(auth_router, prefix="/api/v1")
     api.include_router(orders_router, prefix="/api/v1")
@@ -134,6 +152,8 @@ def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
 
     api.dependency_overrides[get_cache_client] = test_cache
 
+    api.dependency_overrides[get_auth_rate_limit_redis] = lambda: auth_rate_limit_store
+
     @api.get("/test/admin")
     async def admin_endpoint(
         user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
@@ -151,5 +171,6 @@ def test_app(session_maker: async_sessionmaker[AsyncSession]) -> FastAPI:
 
 @pytest_asyncio.fixture
 async def client(test_app: FastAPI) -> AsyncIterator[AsyncClient]:
-    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+    transport = ASGITransport(app=test_app, client=(str(IPv6Address(uuid4().int)), 12345))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

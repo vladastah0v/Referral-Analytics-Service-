@@ -2,8 +2,9 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from pydantic import UUID4, AwareDatetime
+from pydantic import UUID4
 
+from app.common.validation import UTCDateTime
 from app.core.dependencies import CurrentUser, SessionDependency, require_roles
 from app.modules.leads.models import LeadStatus
 from app.modules.leads.schemas import (
@@ -62,8 +63,8 @@ async def list_leads(
     response: Response,
     status: LeadStatus | None = None,
     manager_id: UUID | None = None,
-    date_from: AwareDatetime | None = None,
-    date_to: AwareDatetime | None = None,
+    date_from: UTCDateTime | None = None,
+    date_to: UTCDateTime | None = None,
     sort: Literal["asc", "desc"] = "desc",
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0, le=2147483647)] = 0,

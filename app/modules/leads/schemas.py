@@ -2,15 +2,20 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, StringConstraints
 
+from app.common.validation import validate_postgres_text
 from app.modules.leads.models import LeadStatus
 
 
 class LeadCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    source: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+        AfterValidator(validate_postgres_text),
+    ]
 
 
 class LeadRead(BaseModel):

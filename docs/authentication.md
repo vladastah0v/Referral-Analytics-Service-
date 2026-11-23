@@ -42,7 +42,20 @@ docker compose exec api python -m app.cli create-admin --email admin@example.com
 разработки отклоняется. Замена ключа отзывает все ранее выданные токены. Внешний
 доступ к API должен использовать HTTPS.
 
-Команда применения миграций:
+Менеджера можно создать в таком же интерактивном терминале. После создания
+администратор назначает ему заявку по UUID.
+
+```bash
+docker compose exec api python -m app.cli create-manager --email manager@example.com --full-name "Manager"
+```
+
+Redis ограничивает число попыток на IP за 60 секунд. Для входа допускается
+30 запросов, для регистрации — 20. При превышении API возвращает 429 и
+`Retry-After`. В production при недоступности Redis эти два метода возвращают
+503. За прокси задайте в `FORWARDED_ALLOW_IPS` только адреса доверенных
+прокси, чтобы лимит применялся к адресу клиента.
+
+Команда применения миграций
 
 ```bash
 docker compose exec api alembic upgrade head

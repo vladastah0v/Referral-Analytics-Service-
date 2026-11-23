@@ -2,6 +2,7 @@ import hmac
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -19,6 +20,7 @@ from app.core.security import (
 from app.modules.auth.models import AuthSession
 from app.modules.auth.repository import AuthSessionRepository
 from app.modules.auth.schemas import LoginRequest, TokenPair
+from app.modules.users.models import User
 from app.modules.users.repository import UserRepository
 
 
@@ -30,12 +32,32 @@ class AuthService:
 
     async def login(self, data: LoginRequest) -> TokenPair:
         user = await self.users.get_by_email(data.email)
-        candidate_hash = user.password_hash if user else DUMMY_PASSWORD_HASH
-        password_valid = await verify_password(candidate_hash, data.password.get_secret_value())
-        if user is None or not password_valid or not user.is_active:
+        user_id = user.id if user is not None else None
+        candidate_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
+        password = data.password.get_secret_value()
+        for _ in range(2):
+            # Release the connection before waiting for Argon2.
+            await self.session.rollback()
+            if not await verify_password(candidate_hash, password) or user_id is None:
+                raise AuthenticationError
+            replacement = (
+                await hash_password(password) if password_needs_rehash(candidate_hash) else None
+            )
+            user = await self.session.scalar(
+                select(User).where(User.id == user_id, User.is_active.is_(True)).with_for_update()
+            )
+            if user is None:
+                await self.session.rollback()
+                raise AuthenticationError
+            if user.password_hash == candidate_hash:
+                break
+            # A concurrent login can replace an old hash for the same password.
+            candidate_hash = user.password_hash
+        else:
+            await self.session.rollback()
             raise AuthenticationError
-        if password_needs_rehash(user.password_hash):
-            user.password_hash = await hash_password(data.password.get_secret_value())
+        if replacement is not None:
+            user.password_hash = replacement
 
         session_id = uuid4()
         refresh_token, expires_at = create_token(user.id, session_id, "refresh")

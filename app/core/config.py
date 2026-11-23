@@ -3,12 +3,15 @@ from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 DEVELOPMENT_JWT_SECRET = "local-development-only-change-this-jwt-secret-before-deployment"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
+    )
 
     app_env: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -22,6 +25,7 @@ class Settings(BaseSettings):
     )
     celery_result_backend: str = "redis://localhost:6379/2"
     celery_broker_url: str = "redis://localhost:6379/1"
+    outbox_drain_seconds: float = Field(default=20, gt=0, le=120)
     jwt_secret: SecretStr = SecretStr(DEVELOPMENT_JWT_SECRET)
     jwt_access_ttl_minutes: int = Field(default=15, ge=1, le=1440)
     jwt_refresh_ttl_days: int = Field(default=30, ge=1, le=365)
@@ -33,6 +37,11 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET must contain at least 32 bytes")
         if self.app_env == "production" and secret == DEVELOPMENT_JWT_SECRET:
             raise ValueError("JWT_SECRET must be changed in production")
+        if (
+            self.app_env == "production"
+            and make_url(self.database_url).password == "local-development-only"
+        ):
+            raise ValueError("DATABASE_URL must not use the local development password")
         if self.jwt_access_ttl_minutes * 60 > self.jwt_refresh_ttl_days * 86400:
             raise ValueError("Access token lifetime cannot exceed refresh token lifetime")
         return self

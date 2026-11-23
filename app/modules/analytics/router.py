@@ -2,8 +2,8 @@ from datetime import UTC
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import AwareDatetime
 
+from app.common.validation import PostgresText, UTCDateTime
 from app.core.dependencies import SessionDependency, require_roles
 from app.modules.analytics.cache import CacheClient, cached_report, report_snapshot
 from app.modules.analytics.conversion import ConversionReport, conversion_report
@@ -33,13 +33,13 @@ async def revenue(
     cache: CacheClient,
     session: SessionDependency,
     response: Response,
-    date_from: AwareDatetime | None = None,
-    date_to: AwareDatetime | None = None,
-    currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+    date_from: UTCDateTime | None = None,
+    date_to: UTCDateTime | None = None,
+    currency: Annotated[PostgresText | None, Query(pattern=r"^[A-Z]{3}$")] = None,
     group_by: Grouping | None = None,
-    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    campaign: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[PostgresText | None, Query(min_length=1, max_length=64)] = None,
 ) -> RevenueReport:
     try:
         report = await RevenueService(session).report(
@@ -66,12 +66,12 @@ async def referrals(
     cache: CacheClient,
     session: SessionDependency,
     response: Response,
-    date_from: AwareDatetime | None = None,
-    date_to: AwareDatetime | None = None,
+    date_from: UTCDateTime | None = None,
+    date_to: UTCDateTime | None = None,
     group_by: Grouping | None = None,
-    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    campaign: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[PostgresText | None, Query(min_length=1, max_length=64)] = None,
 ) -> ReferralReport:
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
@@ -87,12 +87,12 @@ async def funnel(
     cache: CacheClient,
     session: SessionDependency,
     response: Response,
-    date_from: AwareDatetime | None = None,
-    date_to: AwareDatetime | None = None,
+    date_from: UTCDateTime | None = None,
+    date_to: UTCDateTime | None = None,
     group_by: Grouping | None = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    source: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    campaign: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[PostgresText | None, Query(min_length=1, max_length=64)] = None,
 ) -> FunnelReport:
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
@@ -108,12 +108,12 @@ async def overview(
     cache: CacheClient,
     session: SessionDependency,
     response: Response,
-    date_from: AwareDatetime | None = None,
-    date_to: AwareDatetime | None = None,
+    date_from: UTCDateTime | None = None,
+    date_to: UTCDateTime | None = None,
     group_by: Grouping | None = None,
-    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    campaign: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[PostgresText | None, Query(min_length=1, max_length=64)] = None,
 ) -> OverviewReport:
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
@@ -129,13 +129,13 @@ async def top_referrers(
     cache: CacheClient,
     session: SessionDependency,
     response: Response,
-    date_from: AwareDatetime | None = None,
-    date_to: AwareDatetime | None = None,
+    date_from: UTCDateTime | None = None,
+    date_to: UTCDateTime | None = None,
     group_by: Grouping | None = None,
-    currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
-    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    currency: Annotated[PostgresText | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+    campaign: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[PostgresText | None, Query(min_length=1, max_length=64)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 10,
 ) -> ReferrerRanking:
     start = date_from.astimezone(UTC) if date_from else None
@@ -174,14 +174,14 @@ async def conversion(
     cache: CacheClient,
     session: SessionDependency,
     response: Response,
-    date_from: AwareDatetime,
-    date_to: AwareDatetime,
-    previous_from: AwareDatetime | None = None,
-    previous_to: AwareDatetime | None = None,
+    date_from: UTCDateTime,
+    date_to: UTCDateTime,
+    previous_from: UTCDateTime | None = None,
+    previous_to: UTCDateTime | None = None,
     group_by: Grouping | None = None,
-    campaign: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    source: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
-    referral_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    campaign: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    source: Annotated[PostgresText | None, Query(min_length=1, max_length=128)] = None,
+    referral_code: Annotated[PostgresText | None, Query(min_length=1, max_length=64)] = None,
 ) -> ConversionReport:
     start, end = date_from.astimezone(UTC), date_to.astimezone(UTC)
     if start >= end:

@@ -204,13 +204,50 @@ async def test_failed_snapshot_can_be_rebuilt_without_blocking_other_days(
     async with session_maker() as session:
         session.add_all([SnapshotRequest(day=failed_day), SnapshotRequest(day=healthy_day)])
         await session.commit()
-    await maintenance.mark_failed(session_maker, failed_day, "failed-task")
+    async with session_maker() as session:
+        failed_id = await session.scalar(
+            select(SnapshotRequest.id).where(SnapshotRequest.day == failed_day)
+        )
+    await maintenance.mark_failed(session_maker, failed_day, "failed-task", failed_id, 1)
     published = []
-    monkeypatch.setattr(maintenance.refresh_day_task, "delay", published.append)
+    monkeypatch.setattr(maintenance.refresh_day_task, "delay", lambda *args: published.append(args))
     assert await maintenance.dispatch_pending(session_maker) == 1
-    assert published == [healthy_day.isoformat()]
+    assert [item[0] for item in published] == [healthy_day.isoformat()]
     assert await maintenance.refresh_day(session_maker, failed_day.isoformat())
     async with session_maker() as session:
         assert await session.get(SnapshotFailure, failed_day) is None
         assert await session.get(DailySnapshot, failed_day) is not None
         assert (await session.scalars(select(SnapshotRequest.day))).all() == [healthy_day]
+
+
+async def test_obsolete_snapshot_failure_cannot_block_new_requests(session_maker, monkeypatch):
+    day = date(2026, 1, 1)
+    async with session_maker() as session:
+        previous = SnapshotRequest(day=day)
+        session.add(previous)
+        await session.commit()
+        previous_id = previous.id
+    assert await maintenance.refresh_day(session_maker, day.isoformat())
+    async with session_maker() as session:
+        session.add(SnapshotRequest(day=day))
+        await session.commit()
+    await maintenance.mark_failed(session_maker, day, "old-task", previous_id, 1)
+    dispatched = []
+    monkeypatch.setattr(
+        maintenance.refresh_day_task, "delay", lambda *args: dispatched.append(args)
+    )
+    assert await maintenance.dispatch_pending(session_maker) == 1
+    assert dispatched[0][0] == day.isoformat()
+    async with session_maker() as session:
+        assert await session.get(SnapshotFailure, day) is None
+
+
+async def test_truncate_enqueues_materialized_days(db_engine, session_maker):
+    from sqlalchemy import text
+
+    day = date(2026, 1, 1)
+    assert await maintenance.refresh_day(session_maker, day.isoformat())
+    async with db_engine.begin() as connection:
+        await connection.execute(text("TRUNCATE referral_clicks CASCADE"))
+    async with session_maker() as session:
+        assert await session.scalar(select(SnapshotRequest.day)) == day

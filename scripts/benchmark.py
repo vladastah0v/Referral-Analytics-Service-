@@ -23,7 +23,6 @@ from app.modules.auth.models import AuthSession
 from app.modules.referrals.models import ReferralAttribution, ReferralClick, ReferralCode
 from app.modules.tracking.security import create_credential
 from app.modules.users.models import User, UserRole
-from app.workers.celery_app import celery_app
 from scripts.seed import Scenario
 
 LOCUSTFILE = Path(__file__).resolve().parents[1] / "tests/performance/locustfile.py"
@@ -150,16 +149,6 @@ async def run_phase(args, output, cache, fixture, name):
     return interval(before, await counters(cache)) | {"locust_exit_code": exit_code}
 
 
-async def schedule_parallel_drains():
-    while True:
-        jobs = [
-            await asyncio.to_thread(celery_app.send_task, "tracking.drain_outbox") for _ in range(2)
-        ]
-        while not await asyncio.to_thread(lambda jobs=jobs: all(job.ready() for job in jobs)):
-            await asyncio.sleep(1)
-        await asyncio.sleep(2)
-
-
 async def await_rewards(source, timeout):
     deadline = time.monotonic() + timeout
     while True:
@@ -232,6 +221,7 @@ async def benchmark(args):
                     users=args.users,
                     spawn_rate=args.spawn_rate,
                     seconds_per_phase=args.seconds,
+                    outbox_drain_seconds=get_settings().outbox_drain_seconds,
                     initial_rows=rows,
                     platform=platform.platform(),
                     python=platform.python_version(),
@@ -240,13 +230,10 @@ async def benchmark(args):
                     redis=(await cache.info("server"))["redis_version"],
                 )
                 report["read"] = await run_phase(args, output, cache, fixture, "read")
-                async with asyncio.TaskGroup() as tasks:
-                    drains = tasks.create_task(schedule_parallel_drains())
-                    report["mixed"] = await run_phase(args, output, cache, fixture, "mixed")
-                    drain_started = time.monotonic()
-                    report["outbox"] = await await_rewards(source, args.drain_timeout)
-                    report["drain_seconds"] = round(time.monotonic() - drain_started, 3)
-                    drains.cancel()
+                report["mixed"] = await run_phase(args, output, cache, fixture, "mixed")
+                drain_started = time.monotonic()
+                report["outbox"] = await await_rewards(source, args.drain_timeout)
+                report["drain_seconds"] = round(time.monotonic() - drain_started, 3)
                 (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
                 result = report["outbox"]
                 return int(

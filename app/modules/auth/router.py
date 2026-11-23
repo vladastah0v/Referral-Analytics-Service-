@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
 from app.core.dependencies import SessionDependency
+from app.modules.auth.rate_limit import limit_auth_requests
 from app.modules.auth.schemas import LoginRequest, RefreshRequest, TokenPair
 from app.modules.auth.service import AuthService
 from app.modules.users.models import UserRole
@@ -10,13 +11,22 @@ from app.modules.users.service import UserService
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit_auth_requests("register", 20))],
+)
 async def register(data: UserRegistration, session: SessionDependency) -> UserRead:
     user = await UserService(session).create(data, UserRole.CUSTOMER, visitor_id=data.visitor_id)
     return UserRead.model_validate(user)
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post(
+    "/login",
+    response_model=TokenPair,
+    dependencies=[Depends(limit_auth_requests("login", 30))],
+)
 async def login(data: LoginRequest, session: SessionDependency, response: Response) -> TokenPair:
     tokens = await AuthService(session).login(data)
     response.headers["Cache-Control"] = "no-store"

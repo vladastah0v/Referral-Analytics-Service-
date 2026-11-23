@@ -1,12 +1,14 @@
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from argon2 import PasswordHasher
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.security import hash_refresh_token, verify_password
+from app.core.security import hash_refresh_token, password_needs_rehash, verify_password
 from app.modules.auth.models import AuthSession
 from app.modules.users.models import User, UserRole
 from app.modules.users.schemas import UserCreate
@@ -107,6 +109,23 @@ async def test_login_and_token_storage(
     ).status_code == 401
 
 
+async def test_parallel_logins_upgrade_an_old_password_hash(
+    client: AsyncClient, session_maker: async_sessionmaker[AsyncSession]
+) -> None:
+    assert (await register(client)).status_code == 201
+    old_hash = PasswordHasher(time_cost=1).hash(PASSWORD)
+    async with session_maker() as session:
+        await session.execute(update(User).values(password_hash=old_hash))
+        await session.commit()
+
+    results = await asyncio.gather(login(client), login(client))
+    assert [response.status_code for response in results] == [200, 200]
+    async with session_maker() as session:
+        upgraded = await session.scalar(select(User.password_hash))
+        assert upgraded != old_hash
+        assert not password_needs_rehash(upgraded)
+
+
 async def test_rotation_replay_logout_and_session_isolation(client: AsyncClient) -> None:
     await register(client)
     first = (await login(client)).json()
@@ -199,3 +218,15 @@ async def test_admin_creation_service_uses_admin_role(
     await cli.create_admin("admin@example.com", "Administrator", PASSWORD)
     token = (await login(client, "admin@example.com")).json()["access_token"]
     assert (await client.get("/test/admin", headers=bearer(token))).status_code == 200
+
+
+async def test_login_limit_rejects_excess_attempts_before_password_verification(
+    client: AsyncClient,
+) -> None:
+    if not os.getenv("TEST_REDIS_URL"):
+        pytest.skip("Set TEST_REDIS_URL to exercise the Redis authentication limiter")
+    for _ in range(30):
+        assert (await client.post("/api/v1/auth/login", json={})).status_code == 422
+    limited = await client.post("/api/v1/auth/login", json={})
+    assert limited.status_code == 429
+    assert 1 <= int(limited.headers["Retry-After"]) <= 60

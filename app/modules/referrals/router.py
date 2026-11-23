@@ -2,8 +2,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from pydantic import AwareDatetime
 
+from app.common.validation import UTCDateTime
 from app.core.dependencies import CurrentUser, SessionDependency
 from app.modules.referrals.schemas import (
     ReferralClickCreate,
@@ -102,11 +102,9 @@ async def referral_statistics(
     session: SessionDependency,
     response: Response,
     date_from: Annotated[
-        AwareDatetime | None, Query(description="Inclusive start with timezone")
+        UTCDateTime | None, Query(description="Inclusive start with timezone")
     ] = None,
-    date_to: Annotated[
-        AwareDatetime | None, Query(description="Exclusive end with timezone")
-    ] = None,
+    date_to: Annotated[UTCDateTime | None, Query(description="Exclusive end with timezone")] = None,
 ) -> ReferralStatistics:
     try:
         result = await ReferralStatisticsService(session).get_for_owner(user.id, date_from, date_to)

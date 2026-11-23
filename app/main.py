@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -8,7 +9,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.database import engine
+from app.core.database import database_schema_head, engine
 from app.core.exceptions import (
     AuthenticationError,
     EmailAlreadyRegisteredError,
@@ -83,9 +84,12 @@ async def liveness() -> dict[str, str]:
 @app.get("/health/ready", tags=["health"])
 async def readiness() -> dict[str, str]:
     try:
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
-        await redis_client.ping()
+        async with asyncio.timeout(2):
+            async with engine.connect() as connection:
+                revision = await connection.scalar(text("SELECT version_num FROM alembic_version"))
+            if revision != database_schema_head():
+                raise HTTPException(status_code=503, detail="Database migrations required")
+            await redis_client.ping()
     except (SQLAlchemyError, RedisError, OSError, TimeoutError) as exc:
         raise HTTPException(status_code=503, detail="Dependencies unavailable") from exc
     return {"status": "ok"}

@@ -89,12 +89,26 @@ async def test_integration_auth_batch_idempotency_and_outbox(
     assert (await client.post(EVENTS, headers=headers, json=changed)).status_code == 409
     bad = event("order_paid", money_payload("x") | {"amount": 1.0})
     another = event("order_paid", money_payload("p"))
+    batch_failures = {
+        code: REGISTRY.get_sample_value(
+            "referral_event_ingestion_failures_total", {"mode": "batch", "status": code}
+        )
+        or 0
+        for code in ("409", "422")
+    }
     batch = await client.post(
         EVENTS + "/batch", headers=headers, json={"events": [payload, changed, bad, another, None]}
     )
     assert batch.status_code == 207
     assert [item["status_code"] for item in batch.json()["results"]] == [200, 409, 422, 202, 422]
     assert REGISTRY.get_sample_value("referral_duplicate_events_total", labels) == before + 2
+    for code, count in (("409", 1), ("422", 2)):
+        assert (
+            REGISTRY.get_sample_value(
+                "referral_event_ingestion_failures_total", {"mode": "batch", "status": code}
+            )
+            == batch_failures[code] + count
+        )
     assert (
         await client.post(EVENTS + "/batch", headers=headers, json={"events": [payload] * 101})
     ).status_code == 422
@@ -316,6 +330,20 @@ async def test_order_and_revenue_access_currency_separation(
     assert (await client.get(f"{EVENTS}/{receipts[2]}", headers=manager)).status_code == 404
     assert (await client.get(f"{EVENTS}/{receipts[2]}", headers=admin)).status_code == 200
     assert (await client.get(f"{EVENTS}/{receipts[0]}", headers=first)).status_code == 403
+    invalid_payment = event(
+        "order_paid",
+        money_payload("pay-invalid", "first-order", "USD"),
+        now + timedelta(seconds=2),
+    )
+    receipt = await client.post(EVENTS, headers=headers, json=invalid_payment)
+    assert receipt.status_code == 202
+    event_url = f"{EVENTS}/{receipt.json()['id']}"
+    assert (await client.get(event_url, headers=manager)).status_code == 404
+    assert await process_one(session_maker)
+    assert (await client.get(event_url, headers=manager)).status_code == 404
+    rejected = await client.get(event_url, headers=admin)
+    assert rejected.status_code == 200
+    assert rejected.json()["processing_status"] == "rejected"
     manager_revenue = (await client.get("/api/v1/analytics/revenue", headers=manager)).json()[
         "items"
     ]
@@ -816,3 +844,51 @@ async def test_same_operation_on_different_orders_never_credits_both(
             )
             == 1
         )
+
+
+async def test_adjustment_id_is_shared_by_credit_and_debit(client, session_maker):
+    _, user_id = await make_user(client)
+    key = await service_key(session_maker)
+    now = datetime.now(UTC)
+    messages = [
+        event("order_created", created_payload(user_id), now),
+        event("order_paid", money_payload("paid"), now + timedelta(seconds=1)),
+        event(
+            "order_adjusted",
+            money_payload("adjustment", amount="15.00") | {"direction": "credit"},
+            now + timedelta(seconds=2),
+        ),
+        event(
+            "order_adjusted",
+            money_payload("adjustment", amount="15.00") | {"direction": "debit"},
+            now + timedelta(seconds=2),
+        ),
+    ]
+    for message in messages:
+        receipt = await client.post(EVENTS, headers=key, json=message)
+        assert receipt.status_code == 202
+        assert await process_one(session_maker)
+    async with session_maker() as session:
+        rejected = await session.get(Event, UUID(receipt.json()["id"]))
+        assert rejected.error_code == "operation_identity_conflict"
+        assert await session.scalar(select(func.count()).select_from(OrderFinancialEvent)) == 2
+
+
+async def test_payment_retry_accepts_legacy_decimal_scale(client, session_maker):
+    import hashlib
+    import json
+
+    key = await service_key(session_maker)
+    message = event("order_paid", money_payload("pay", amount="100.0"))
+    receipt = await client.post(EVENTS, headers=key, json=message)
+    assert receipt.status_code == 202
+    # Recreate the original stored representation used by the previous release.
+    async with session_maker() as session:
+        row = await session.get(Event, UUID(receipt.json()["id"]))
+        row.payload = message["payload"]
+        row.payload_hash = hashlib.sha256(json.dumps(message).encode()).hexdigest()
+        await session.commit()
+    message["payload"] = money_payload("pay", amount="100.00")
+    assert (await client.post(EVENTS, headers=key, json=message)).status_code == 200
+    message["payload"] = money_payload("pay", amount="100.01")
+    assert (await client.post(EVENTS, headers=key, json=message)).status_code == 409

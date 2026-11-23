@@ -34,4 +34,6 @@ class SnapshotFailure(Base):
     __tablename__ = "analytics_snapshot_failures"
     day: Mapped[date] = mapped_column(primary_key=True)
     task_id: Mapped[str]
+    request_id: Mapped[int | None] = mapped_column(BigInteger)
+    request_count: Mapped[int | None] = mapped_column(BigInteger)
     failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

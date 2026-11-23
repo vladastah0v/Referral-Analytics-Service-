@@ -76,6 +76,11 @@ def test_production_rejects_default_or_short_secret() -> None:
         Settings(_env_file=None, app_env="production", jwt_secret=DEVELOPMENT_JWT_SECRET)
     with pytest.raises(ValidationError):
         Settings(_env_file=None, app_env="production", jwt_secret="short")
-    settings = Settings(_env_file=None, app_env="production", jwt_secret="x" * 48)
+    settings = Settings(
+        _env_file=None,
+        app_env="production",
+        jwt_secret="x" * 48,
+        database_url="postgresql+asyncpg://referral:configured-password@db/referral",
+    )
     assert settings.app_env == "production"
     assert "x" * 48 not in repr(settings)

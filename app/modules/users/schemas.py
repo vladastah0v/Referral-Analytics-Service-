@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import (
     UUID4,
+    AfterValidator,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -12,6 +13,7 @@ from pydantic import (
     field_validator,
 )
 
+from app.common.validation import validate_postgres_text
 from app.modules.users.models import UserRole
 
 
@@ -21,7 +23,9 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: SecretStr
     full_name: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+        AfterValidator(validate_postgres_text),
     ]
 
     @field_validator("email")
