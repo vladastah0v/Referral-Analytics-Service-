@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://ci:ci-local@127.0.0.1:5432/test_referral_ci
+      TEST_DATABASE_URL: postgresql+asyncpg://ci:ci-local@127.0.0.1:5432/test_referral_ci
+      TEST_REDIS_URL: redis://127.0.0.1:6379/14
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-local
+          POSTGRES_DB: test_referral_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d test_referral_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --group performance
+
+      - name: Run Ruff
+        run: |
+          uv run --locked ruff check .
+          uv run --locked ruff format --check .
+
+      - name: Apply and verify Alembic migrations
+        run: |
+          uv run --locked alembic upgrade head
+          uv run --locked alembic check
+
+      - name: Run tests and enforce coverage
+        run: uv run --locked pytest --cov=app --cov-report=term-missing --cov-fail-under=70
+
+      - name: Build and smoke-test the Docker image
+        run: |
+          docker build --tag referral-analytics:ci .
+          docker run --rm referral-analytics:ci python -c "from app.main import app; assert '/api/v1/events/batch' in app.openapi()['paths']"
